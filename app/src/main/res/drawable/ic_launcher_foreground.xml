@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Stylised winged-H: Hermes mark placeholder -->
+    <path
+        android:fillColor="#E8EAED"
+        android:pathData="M36,30h10v20h16V30h10v48H62V58H46v20H36V30z" />
+    <path
+        android:fillColor="#8AB4F8"
+        android:pathData="M72,30l14,10 -14,10z" />
+</vector>
