@@ -1,3 +1,0 @@
-# Test
-
-Connectivity test doc.
