@@ -89,6 +89,9 @@ URL: `ws://100.123.89.114:9119/api/ws?ticket=<urlencoded>`. (Alternative transpo
 subprotocol `hermes-gateway-v1, hermes-gateway-ticket.<t>` or `?token=<access_token>` —
 use `?ticket=` as primary; `web_server_chat.py:299-365@v0.21.6`.)
 Omit the `Origin` header (sending one invites a check; absent skips it).
+`Sec-WebSocket-Key` must be standard base64-with-padding of 16 random bytes — a base64url
+unpadded key gets `400 Failed to open a WebSocket connection: invalid Sec-WebSocket-Key`.
+OkHttp generates a valid key by default; only hand-rolled clients need care.
 A rejected upgrade surfaces as HTTP 403 on the handshake; post-accept closes use
 1011 (send deadline / fanout overflow) and 1000 (normal) (`ws.py:69,206-249,470@v0.21.6`).
 
@@ -104,8 +107,10 @@ Diagnostics. Do not hard-fail (a server update must not brick the app).
 **Immediately after ready, send:**
 `{"jsonrpc":"2.0","id":"a1","method":"client.capabilities","params":{"server_requests":true}}`
 → result `{"server_requests":[<method names>],"declines_not_shown":bool}`
-(`contracts/liveness.py:29-48@v0.21.6`). **Without this, every approval/clarify/sudo fails
-fast for this client.** Params reject unknown keys (`extra="forbid"` → error 4000;
+(`contracts/liveness.py:29-48@v0.21.6`). Observed live on 2026-10-11:
+`approval, clarify, display.install.sudo, preview.act, preview.read, secret, setup_choose,
+sudo, terminal.read, tour, …`.
+**Without this, every approval/clarify/sudo fails fast for this client.** Params reject unknown keys (`extra="forbid"` → error 4000;
 `contracts/base.py:16`, `registry.py:94-109@v0.21.6`).
 
 **Heartbeat:** if `gateway.ready.payload.heartbeat===true`, send
@@ -161,6 +166,7 @@ id returns 4001 → `session.resume(stored_id)`.
   **No pagination over RPC** (REST `GET /api/sessions?limit≤100&offset` has it).
   Result `{sessions:[{id(stored),title,preview,started_at(epoch s),message_count,source}]}` —
   no `last_active` field (`methods_session.py:549-573,118-156@v0.21.6`).
+- Stored ids look like `20261011_233258_cf1f51` (opaque — never parse, only store).
 - `session.resume` — params `{session_id(stored) REQ,profile?,source?,lazy?,defer_history?,
   omit_messages?,eager_build?,close_on_disconnect?}`. Set **`inline_images:false` on mobile**
   (image parts become `"[image]"` instead of data URIs). Result (LiveSessionSnapshot):
