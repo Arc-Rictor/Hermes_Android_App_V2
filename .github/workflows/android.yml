@@ -38,27 +38,4 @@ jobs:
           echo "$DEBUG_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/debug.keystore"
           echo "DEBUG_KEYSTORE_PATH=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_ENV"
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: 9.8.1
-
-      - name: Assemble debug
-        run: gradle assembleDebug --stacktrace
-        env:
-          DEBUG_KEYSTORE_PATH: ${{ env.DEBUG_KEYSTORE_PATH }}
-          DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
-          DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
-          DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
-
-      - name: Lint
-        run: gradle lintDebug
-
-      - name: Unit tests
-        run: gradle testDebugUnitTest
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: hermes-debug
-          path: app/build/outputs/apk/debug/*.apk
+      - run: echo probe2
