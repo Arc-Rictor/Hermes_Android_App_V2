@@ -7,12 +7,14 @@ plugins {
 
 android {
     namespace = "com.arcrictor.hermes"
-    compileSdk = 37
+    // API 37 platform is documented but not published to the SDK repo yet (max is 36).
+    // The Pixel runs Android 17; 36 builds and runs on it fine. Bump to 37 when published.
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.arcrictor.hermes"
-        minSdk = 37
-        targetSdk = 37
+        minSdk = 36
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0-phase1"
     }
