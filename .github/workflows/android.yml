@@ -30,12 +30,4 @@ jobs:
           yes | sdkmanager --licenses > /dev/null
           sdkmanager "platforms;android-37"
 
-      - name: Decode debug keystore (optional)
-        if: ${{ secrets.DEBUG_KEYSTORE_B64 != '' }}
-        env:
-          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
-        run: |
-          echo "$DEBUG_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/debug.keystore"
-          echo "DEBUG_KEYSTORE_PATH=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_ENV"
-
       - run: echo probe2
