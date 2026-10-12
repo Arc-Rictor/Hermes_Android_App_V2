@@ -12,26 +12,26 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
   rotate mid-session, readable UI after the Surface/insets fix).
 - **Phase 3: done, merged to `main`.** Verified on-device (hello turn, tool turn,
   Stop, send-while-busy labels, airplane-mode reconnect, rotation).
-- **Phase 4: code complete on branch `phase-4-attachments`, CI green, NOT merged,
-  NOT tested on-device.** Attachments: CameraX 1.6.2 capture sheet (pinned: needs
-  exactly compileSdk 36), gallery multi-pick, generic file picker, share-receive
-  (text/images/files → session picker → pre-filled composer), downscale ≤1568 px
-  JPEG q80 with EXIF rotation, always-`.jpg` names, 11 MB refusal, attach-then-submit
-  ordering with abort-on-failure. V1 port: downscale loop + filesDir staging from
-  `data/Attachments.kt` only, per AGENTS.md rule 10.
+- **Phase 4: done, merged to `main`** (plus the open-new-session-directly fix and the
+  adjustResize keyboard fix). Verified on-device (camera/gallery/PDF/zip, 11 MB
+  refusal, share-receive, new-chat creation).
+- **Phase 5: code complete on branch `phase-5-approvals`, CI green, NOT merged,
+  NOT tested on-device.** Approvals (offered choices only, `once` default path),
+  clarify (options + free text, one submit), masked sudo/secret/vault inputs,
+  snapshot rehydration (`open_requests` + `pending_approval` via `approval.respond`),
+  expiry via `request.cancel`/`approval.cancelled`, -32601 + log for the rest.
 - **Design direction: decided, parked for Phase 8.** Canon world (Claude/Gemini/ChatGPT bar),
   one fixed Hermes blue, light leads. Contract: `.impeccable/surfaces/*chatscreen*.md`;
   comps: `.impeccable/mocks/decision/`; product truth: `PRODUCT.md`.
 - **Credentials:** server URL + username in `config/Defaults.kt`; password only in the
   `HERMES_PASSWORD` CI secret and baked into APKs — never in source. Rotate it per
   SERVER.md §5 when convenient (it appears in an old chat transcript).
-- **Next:** owner installs latest `phase-4-attachments` build and checks the Phase 4
-  DoD below (camera photo, gallery image, PDF, .zip, 20 MB refusal, share-receive)
-  — then merge `phase-4-attachments` → `main` and start Phase 5 (approvals).
-  SERVER.md §2 (poppler for PDFs) is due before Phase 4's PDF check passes — if the
-  server reports 5028, that is a server prerequisite, not an app bug. §4 (ntfy +
-  messaging gateway) before Phase 7; the 4 CI signing secrets are still pending
-  (without them every build uses the runner's throwaway debug key).
+- **Next:** owner installs latest `phase-5-approvals` build and checks the Phase 5
+  DoD below (approval `once` continues the turn, clarify submit, secret prompt)
+  — then merge `phase-5-approvals` → `main` and start Phase 6 (background service
+  + kill recovery). §4 (ntfy + messaging gateway) before Phase 7; the 4 CI signing
+  secrets are still pending (without them every build uses the runner's throwaway
+  debug key).
 - **Stack reality (see AGENTS.md):** compileSdk/targetSdk/minSdk 36 — Google has not
   published the android-37 platform. No Room (no KSP for Kotlin 2.4); OkHttp 4.12.0.
 
