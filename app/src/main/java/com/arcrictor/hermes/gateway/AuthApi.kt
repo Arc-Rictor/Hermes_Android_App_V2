@@ -135,6 +135,32 @@ class AuthApi(
         return GatewayJson.decodeFromString(bytes.toString(Charsets.UTF_8))
     }
 
+    /**
+     * Authenticated GET with query params (REST fallbacks: messages paging, /api/media).
+     * 401 → [LoginError.SessionExpired].
+     */
+    suspend fun get(path: String, query: Map<String, String>, accessToken: String): ByteArray {
+        fun q(v: String) = URLEncoder.encode(v, "UTF-8")
+        val url = buildString {
+            append(base).append(path)
+            query.entries.forEachIndexed { i, (k, v) ->
+                append(if (i == 0) "?" else "&").append(q(k)).append("=").append(q(v))
+            }
+        }
+        val req = Request.Builder().url(url)
+            .header("Authorization", "Bearer $accessToken")
+            .get()
+            .build()
+        val (httpCode, bytes) = try {
+            client.newCall(req).awaitBytes()
+        } catch (e: IOException) {
+            throw ioError(e)
+        }
+        if (httpCode == 401) throw LoginError.SessionExpired()
+        if (httpCode != 200) throw LoginError.Http(httpCode, bytes.toString(Charsets.UTF_8).take(160))
+        return bytes
+    }
+
     /** Mint a 30 s single-use WebSocket ticket. */
     suspend fun wsTicket(accessToken: String): String {
         val req = Request.Builder().url("$base/api/auth/ws-ticket")

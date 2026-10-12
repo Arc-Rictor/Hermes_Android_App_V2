@@ -43,10 +43,13 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
   `@image:` thumbnails via `/api/media`;
   render history rows (§7) incl. `@image:`/`@file:` refs, reasoning sidecars, tool rows;
   `sessions.changed` → refetch; persist stored id per open session; Sessions screen.
-- Files: `gateway/SessionsApi.kt`, `data/SessionStore.kt` (Room),
-  `ui/SessionsScreen.kt`, `ui/HistoryList.kt`.
+- Files: `gateway/SessionsApi.kt`, `gateway/SessionModels.kt`, `gateway/Transcript.kt`,
+  `data/SessionCache.kt` (JSON files, not Room — no KSP exists for Kotlin 2.4),
+  `media/ServerImages.kt`, `ui/SessionsScreen.kt`, `ui/HistoryScreen.kt`.
 - Tests: resume-JSON parsing incl. `inflight`/`open_requests`; history projection cases
-  (tool-only row dropped, `@image:` line parsed).
+  (tool-only row dropped, `@image:` line parsed incl. quoting, hidden/`[System:`/empty
+  skipped, reasoning attached); `@ref` quoting variants; cache filename sanitising.
+  (`SessionsApi` WS calls are covered live, not mocked.)
 - DoD:
   - [ ] List, create, rename, delete round-trip against live server.
   - [ ] A session with past tool calls renders transcript + tool rows correctly.
