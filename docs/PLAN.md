@@ -4,24 +4,48 @@ Work phases in order. Each phase lists tasks, files, and a Definition of Done.
 DoD is checked against CI (`lintDebug` + `testDebugUnitTest` green) plus the boxes below.
 Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
 
+## Session status (2026-10-12 — session closing, work paused here)
+
+- **Phase 1: done, merged to `main`.** Verified on-device (login → READY, 14 server-request
+  types, heartbeat). APKs named `hermes-debug-build-<run number>`.
+- **Phase 2: code complete on branch `phase-2-sessions`, CI green (build 30), NOT merged,
+  NOT tested on-device.** Sessions list/create/rename/delete, transcript history with tool
+  rows, thinking expander, `@image:` thumbnails, JSON-file cache, auto-login on launch with
+  baked-in password (`HERMES_PASSWORD` CI secret set; password verified present in the APK).
+- **Design direction: decided, parked for Phase 8.** Canon world (Claude/Gemini/ChatGPT bar),
+  one fixed Hermes blue, light leads. Contract: `.impeccable/surfaces/*chatscreen*.md`;
+  comps: `.impeccable/mocks/decision/`; product truth: `PRODUCT.md`.
+- **Credentials:** server URL + username in `config/Defaults.kt`; password only in the
+  `HERMES_PASSWORD` CI secret and baked into APKs — never in source. Rotate it per
+  SERVER.md §5 when convenient (it appears in an old chat transcript).
+- **Next:** owner installs build 30, checks open-a-session + rotate-mid-session, then merge
+  `phase-2-sessions` → `main` and start Phase 3 (live chat). SERVER.md §2 (poppler for PDFs)
+  is due before Phase 4; §4 (ntfy + messaging gateway) before Phase 7; the 4 CI signing
+  secrets are still pending (without them every build uses the runner's throwaway debug key).
+- **Stack reality (see AGENTS.md):** compileSdk/targetSdk/minSdk 36 — Google has not
+  published the android-37 platform. No Room (no KSP for Kotlin 2.4); OkHttp 4.12.0.
+
 ## Phase 0 — Specs & server prerequisites (architect + owner)
 
 - [x] AGENTS.md, SPEC.md, PROTOCOL.md, PLAN.md, SERVER.md written and verified against
-      Hermes v0.21.6 source.
-- [ ] Owner: SERVER.md §1 (stable signing secret) and §3 (exposure check) before Phase 1
-      on-device testing; §2 before Phase 4; §4 before Phase 7.
-- [ ] Owner: create the 4 CI signing secrets (AGENTS.md "CI signing") before Phase 1 merges.
+      Hermes v0.21.6 source (plus live against the server: login, WS handshake, restart-proof
+      refresh, approval/contract versions).
+- [x] Owner/server: SERVER.md §1 (signing secret — verified restart-proof) and §3
+      (9119 tailnet-only, verified) done 2026-10-11. §2 due before Phase 4; §4 before Phase 7.
+- [x] `HERMES_PASSWORD` CI secret set; auto-login working (password confirmed in APK).
+- [ ] Owner: create the 4 CI signing secrets (AGENTS.md "CI signing").
 
 ## Phase 1 — Skeleton, CI, login
 
-- Tasks: Gradle wrapper, version catalog, `app/` module (min/target/compile 37),
+- Tasks: Gradle wrapper, version catalog, `app/` module (min/target/compile 36 —
+  37 unpublished, see status block),
   network security config (cleartext only `100.123.89.114`, `*.ts.net`),
   `.github/workflows/android.yml` (assemble + lint + unit tests; debug signing via secrets),
   Login screen (URL default `http://100.123.89.114:9119`, username, password),
   `TokenManager` (PKCE flow §2, proactive refresh, Keystore-backed DataStore),
   `GatewayClient` skeleton (OkHttp, connect with `?ticket=`, ready + capabilities handshake §3),
   Diagnostics screen logging each handshake step (redacted per SPEC R1.5) with
-  "Export capture" (redacted frames as `.jsonl` via the share sheet).
+  "Export capture" (redacted frames as `.txt` via the share sheet).
 - Files: `settings.gradle.kts`, `gradle/libs.versions.toml`, `app/build.gradle.kts`,
   `AndroidManifest.xml`, `network_security_config.xml`,
   `ui/LoginScreen.kt`, `ui/DiagnosticsScreen.kt`,
@@ -37,7 +61,8 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
 
 ## Phase 2 — Sessions
 
-- Tasks: session list/create/rename/delete (close live session before delete — 4023);
+- Tasks: session list/create/rename/delete (close live session before delete — 4023;
+  rename uses lazy resume and never closes: the runtime may be shared with Desktop);
   open = resume with `inline_images:false` (4130 → REST paged fallback, PROTOCOL §1);
   check `info.desktop_contract` (≠8 → banner, PROTOCOL §3);
   `@image:` thumbnails via `/api/media`;
