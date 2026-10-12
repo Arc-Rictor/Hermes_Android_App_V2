@@ -63,11 +63,16 @@ Read `docs/SPEC.md`, then `docs/PROTOCOL.md`, then the phase file in `docs/PLAN.
   `DEBUG_KEY_ALIAS`, `DEBUG_KEY_PASSWORD`) so every build has the same signature and installs
   over the previous one. If the secrets are absent the build falls back to the runner's
   default debug key with a warning (that APK will not install over a secret-signed one). Artifact: `hermes-debug.apk`; owner fetches with `gh run download`.
-- CI lessons (2026-10-11, do not regress): never put `secrets.X` in a step `if:` — the whole
+- CI lessons (2026-10, do not regress): never put `secrets.X` in a step `if:` — the whole
   workflow is rejected at parse; branch on the secret inside bash instead. androidx/OkHttp
   latest needs `minCompileSdk 37`, which Google hasn't published — pins live in
   `gradle/libs.versions.toml` with the check command; `compileSdk`/`targetSdk`/`minSdk` are 36
   until the android-37 platform ships (verify with `sdkmanager --list | grep android-37`).
+  In `app/build.gradle.kts`, only `file()`/`System.getenv` resolve inside `android {}` —
+  `java.*` imports and hoisted vals do not; keep build logic block-local. The owner password
+  flows CI secret → `app/local.properties` (not root — `file()` is app-relative) → BuildConfig.
+- After editing, always `git status` before committing: the edit tool can report success
+  while the working tree disagrees — never assume.
 - Each phase in `docs/PLAN.md` has a Definition of Done. Do not mark a phase complete
   until CI is green and every DoD box holds.
 - Live-server verification (login → ready → resume → turn) happens on-device via the
