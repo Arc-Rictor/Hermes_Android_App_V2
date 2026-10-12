@@ -24,19 +24,22 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
   capture contains no incoming `approval`/`sudo` request, even after the agent
   reported `approvals.mode=manual`; it used textual "approve/cancel" instead.
   Server-side approval dispatch needs investigation before Phase 5 is complete.
-- **Phase 6: code in progress on `phase-6-background`, based on the Phase 5
-  branch at the owner's request; Phase 5 remains unmerged and unverified.**
+- **Phase 6: code complete on `phase-6-background`, CI green, NOT merged,
+  NOT tested on-device.** Based on the Phase 5 branch at the owner's request;
+  Phase 5 remains unmerged and its approval dispatch unverified.
 - **Design direction: decided, parked for Phase 8.** Canon world (Claude/Gemini/ChatGPT bar),
   one fixed Hermes blue, light leads. Contract: `.impeccable/surfaces/*chatscreen*.md`;
   comps: `.impeccable/mocks/decision/`; product truth: `PRODUCT.md`.
 - **Credentials:** server URL + username in `config/Defaults.kt`; password only in the
   `HERMES_PASSWORD` CI secret and baked into APKs — never in source. Rotate it per
   SERVER.md §5 when convenient (it appears in an old chat transcript).
-- **Next:** owner installs the Phase 6 build and checks the Phase 6 DoD below.
-  Phase 5 approval dispatch remains a separate server-side blocker; do not rely on
-  the UI as a write gate until an actual server approval request reaches it. §4
-  (ntfy + messaging gateway) before Phase 7; the 4 CI signing secrets are still
-  pending (without them every build uses the runner's throwaway debug key).
+- **Next:** owner installs the Phase 6 build; checks foreground progress/reply-ready
+  notifications, notification tap opens the session, then force-stops mid-turn and
+  reopens for a complete transcript or explicit gap notice. Phase 5 approval
+  dispatch remains a separate server-side blocker; do not rely on the UI as a
+  write gate until an actual server approval request reaches it. §4 (ntfy +
+  messaging gateway) before Phase 7; the 4 CI signing secrets are still pending
+  (without them every build uses the runner's throwaway debug key).
 - **Stack reality (see AGENTS.md):** compileSdk/targetSdk/minSdk 36 — Google has not
   published the android-37 platform. No Room (no KSP for Kotlin 2.4); OkHttp 4.12.0.
 
