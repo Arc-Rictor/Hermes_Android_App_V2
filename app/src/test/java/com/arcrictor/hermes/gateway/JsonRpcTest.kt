@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class JsonRpcTest {
-    @Test fun `gateway.ready classifies as event without session`() {
+    @Test fun `gateway ready classifies as event without session`() {
         val f = JsonRpc.classify(
             """{"jsonrpc":"2.0","method":"event","params":{"type":"gateway.ready","payload":{"skin":{},"change_events":true,"heartbeat":true,"replay_epoch":"abc123"}}}""",
         ) as GatewayFrame.Event
@@ -15,7 +15,7 @@ class JsonRpcTest {
         assertNull(f.seq)
     }
 
-    @Test fun `message.delta carries session, text and seq`() {
+    @Test fun `message delta carries session, text and seq`() {
         val f = JsonRpc.classify(
             """{"jsonrpc":"2.0","method":"event","params":{"type":"message.delta","session_id":"2425776e","payload":{"text":"Hel"},"seq":42}}""",
         ) as GatewayFrame.Event
@@ -23,7 +23,7 @@ class JsonRpcTest {
         assertEquals(42L, f.seq)
     }
 
-    @Test fun `tool.start pairs by tool_id`() {
+    @Test fun `tool start pairs by tool id`() {
         val f = JsonRpc.classify(
             """{"jsonrpc":"2.0","method":"event","params":{"type":"tool.start","session_id":"s","payload":{"tool_id":"t1","name":"terminal","preview":"ls"},"seq":7}}""",
         ) as GatewayFrame.Event
