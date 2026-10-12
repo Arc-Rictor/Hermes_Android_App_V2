@@ -123,9 +123,30 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
 - DoD:
   - [ ] Cron/agent message arrives with app closed; tap opens the right session.
 
-## Phase 8 — Polish
+## Design direction (decided 2026-10-12, built in Phase 8)
 
-- Tasks: code blocks + tables in reply rendering; haptics on state changes;
-  predictive back; empty/loading/error states per screen; app icon; release build check.
+The visual world is chosen and parked: the category-standard Material 3 AI chat app, peers
+Claude / Gemini / ChatGPT for Android, one fixed Hermes blue (#2563EB seed, no Dynamic
+Color), light theme leading. Direction contract: `.impeccable/surfaces/*chatscreen*.md`;
+critique reference: `.impeccable/mocks/decision/canon.png`; product truth: `PRODUCT.md`.
+
+**Phases 3–7 build the agreed structure with default Material 3 styling** so Phase 8 restyles
+rather than re-lays-out:
+- Chat: top app bar with session title + live activity subtitle (from TurnReducer);
+  user turns in bubbles, Hermes replies unbubbled full-width; tool use grouped as a
+  collapsible "Used N tools" row; pill composer with attach left, circular send right that
+  becomes Stop during a turn; a pending approval pins above the composer.
+- No ad-hoc colours, fonts or spacing in screens: use `MaterialTheme` roles and type scale
+  only, so the Phase 8 theme swap reaches everything.
+
+## Phase 8 — Design build + polish
+
+- Tasks: implement the direction contract via the impeccable skill (code-led): Hermes
+  theme (fixed blue scheme, light + dark), component restyle across all screens, motion
+  (send↔Stop morph, activity-line crossfade, honouring Remove animations), session list
+  detail, launcher icon; code blocks + tables in replies; haptics; predictive back;
+  empty/loading/error states; release build check. Then the finish review on emulator/device
+  screenshots (phone, light + dark, font scale 1.3) and the documenter writes DESIGN.md.
 - DoD:
+  - [ ] Finish review verdict recorded; DESIGN.md + `.impeccable/design.json` written.
   - [ ] SPEC.md §4 acceptance boxes all hold on the Pixel.

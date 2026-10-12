@@ -2,6 +2,8 @@
 
 Native Android client for a remote Hermes Agent gateway (dashboard) over Tailscale.
 Read `docs/SPEC.md`, then `docs/PROTOCOL.md`, then the phase file in `docs/PLAN.md` before writing code.
+UI work also reads `PRODUCT.md` and PLAN.md's "Design direction" section: the visual world is
+decided; screens use MaterialTheme roles only until the Phase 8 design build applies it.
 
 ## Stack (fixed)
 
