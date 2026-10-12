@@ -74,11 +74,61 @@ class SessionsApi(
     }
 
     /**
+     * Send text. Busy sessions queue/steer/redirect server-side; the result status
+     * labels the bubble ("queued"/"steering"/"redirected"). No attachments param —
+     * attach calls (Phase 4) precede this in send order.
+     */
+    suspend fun submit(runtimeId: String, text: String): String {
+        val res = rpc(
+            "prompt.submit",
+            buildJsonObject {
+                put("session_id", JsonPrimitive(runtimeId))
+                put("text", JsonPrimitive(text))
+            },
+            timeoutMs = 60_000,
+        )
+        return res["status"]?.jsonPrimitive?.content ?: "streaming"
+    }
+
+    /** Stop the running turn. */
+    suspend fun interrupt(runtimeId: String): String {
+        val res = rpc(
+            "session.interrupt",
+            buildJsonObject { put("session_id", JsonPrimitive(runtimeId)) },
+            timeoutMs = 30_000,
+        )
+        return res["status"]?.jsonPrimitive?.content ?: ""
+    }
+
+    /** Rebind this socket to a live session (reconnect step 2). Carries open_requests. */
+    suspend fun activate(runtimeId: String): LiveSessionSnapshot =
+        snapshot(
+            rpc(
+                "session.activate",
+                buildJsonObject { put("session_id", JsonPrimitive(runtimeId)) },
+                timeoutMs = 60_000,
+            ),
+        )
+
+    /** Missed events since the seq watermark (reconnect step 3). */
+    suspend fun eventsSince(runtimeId: String, lastSeen: Long): EventsSince =
+        GatewayJson.decodeFromJsonElement(
+            EventsSince.serializer(),
+            rpc(
+                "session.events.since",
+                buildJsonObject {
+                    put("session_id", JsonPrimitive(runtimeId))
+                    put("last_seen", JsonPrimitive(lastSeen))
+                },
+                timeoutMs = 60_000,
+            ),
+        )
+
+    /**
      * Delete by stored id (an explicit, destructive user action). Closes the live runtime
      * first when we know it — delete refuses (4023) while live.
      */
-    suspend fun deleteStored(storedId: String, runtimeId: String? = null) {
-        if (runtimeId != null) {
+    suspend fun deleteStored(storedId: String, runtimeId: String? = null) {        if (runtimeId != null) {
             try {
                 rpc("session.close", buildJsonObject { put("session_id", JsonPrimitive(runtimeId)) })
             } catch (_: RpcException) {
