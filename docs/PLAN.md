@@ -10,24 +10,26 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
   types, heartbeat). APKs named `hermes-debug-build-<run number>`.
 - **Phase 2: done, merged to `main`.** Verified on-device (auto-login, session open,
   rotate mid-session, readable UI after the Surface/insets fix).
-- **Phase 3: code complete on branch `phase-3-live-chat`, CI green, NOT merged,
-  NOT tested on-device.** Live chat: TurnReducer + unit tests, prompt.submit with
-  queued/steering/redirected labels, Stop, §5 reconnect (activate → events.since →
-  held frames, resume fallback, 1 s→30 s backoff), Chat screen (activity header +
-  elapsed timer, thinking panel, tool timeline). HistoryScreen removed (ChatScreen
-  absorbs it); one extra shared file (`ui/MessageRows.kt`) to avoid duplicating
-  the transcript renderer.
+- **Phase 3: done, merged to `main`.** Verified on-device (hello turn, tool turn,
+  Stop, send-while-busy labels, airplane-mode reconnect, rotation).
+- **Phase 4: code complete on branch `phase-4-attachments`, CI green, NOT merged,
+  NOT tested on-device.** Attachments: CameraX 1.6.2 capture sheet (pinned: needs
+  exactly compileSdk 36), gallery multi-pick, generic file picker, share-receive
+  (text/images/files → session picker → pre-filled composer), downscale ≤1568 px
+  JPEG q80 with EXIF rotation, always-`.jpg` names, 11 MB refusal, attach-then-submit
+  ordering with abort-on-failure. V1 port: downscale loop + filesDir staging from
+  `data/Attachments.kt` only, per AGENTS.md rule 10.
 - **Design direction: decided, parked for Phase 8.** Canon world (Claude/Gemini/ChatGPT bar),
   one fixed Hermes blue, light leads. Contract: `.impeccable/surfaces/*chatscreen*.md`;
   comps: `.impeccable/mocks/decision/`; product truth: `PRODUCT.md`.
 - **Credentials:** server URL + username in `config/Defaults.kt`; password only in the
   `HERMES_PASSWORD` CI secret and baked into APKs — never in source. Rotate it per
   SERVER.md §5 when convenient (it appears in an old chat transcript).
-- **Next:** owner installs latest `phase-3-live-chat` build, checks hello turn
-  (Working → Responding → Idle, streamed text), a tool-using turn (timeline +
-  thinking panel + usage), Stop mid-turn, and airplane-mode mid-turn reconnect
-  without duplicates — then merge `phase-3-live-chat` → `main` and start Phase 4
-  (attachments). SERVER.md §2 (poppler for PDFs) is due before Phase 4; §4 (ntfy +
+- **Next:** owner installs latest `phase-4-attachments` build and checks the Phase 4
+  DoD below (camera photo, gallery image, PDF, .zip, 20 MB refusal, share-receive)
+  — then merge `phase-4-attachments` → `main` and start Phase 5 (approvals).
+  SERVER.md §2 (poppler for PDFs) is due before Phase 4's PDF check passes — if the
+  server reports 5028, that is a server prerequisite, not an app bug. §4 (ntfy +
   messaging gateway) before Phase 7; the 4 CI signing secrets are still pending
   (without them every build uses the runner's throwaway debug key).
 - **Stack reality (see AGENTS.md):** compileSdk/targetSdk/minSdk 36 — Google has not

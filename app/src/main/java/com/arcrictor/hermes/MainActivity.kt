@@ -1,6 +1,7 @@
 package com.arcrictor.hermes
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -40,6 +41,7 @@ import com.arcrictor.hermes.ui.DiagnosticsScreen
 import com.arcrictor.hermes.ui.LoginScreen
 import com.arcrictor.hermes.ui.LoginUiState
 import com.arcrictor.hermes.ui.SessionsScreen
+import com.arcrictor.hermes.ui.SharedFile
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -52,6 +54,8 @@ private data class ChatOpen(
     val title: String,
     val session: TurnSession,
     val notice: String?,
+    val draft: String = "",
+    val shared: List<SharedFile> = emptyList(),
 )
 
 private fun Exception.userMessage(prefix: String) = (this as? LoginError)?.message ?: "$prefix: $message"
@@ -68,9 +72,38 @@ private fun chatNotice(snap: LiveSessionSnapshot): String? {
 }
 
 class MainActivity : ComponentActivity() {
+    /** Content shared from another app, awaiting a session pick (R4.3). */
+    private var sharedDraft: String? by mutableStateOf(null)
+    private var sharedUris: List<SharedFile> by mutableStateOf(emptyList())
+
+    private fun handleShared(intent: Intent?) {
+        fun stashText(text: String?) {
+            if (!text.isNullOrBlank()) sharedDraft = listOfNotNull(sharedDraft, text).joinToString("\n")
+        }
+        when (intent?.action) {
+            Intent.ACTION_SEND -> {
+                val stream: Uri? = intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                if (stream != null) sharedUris = sharedUris + SharedFile(stream.toString(), intent.type, null)
+                stashText(intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString())
+                if (stream != null || sharedDraft != null) {
+                    (application as? HermesApp)?.captureLog?.add("share received (${intent.type})")
+                }
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                val streams = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+                sharedUris = sharedUris + streams.map { SharedFile(it.toString(), intent.type, null) }
+                stashText(intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString())
+                if (streams.isNotEmpty() || sharedDraft != null) {
+                    (application as? HermesApp)?.captureLog?.add("share received ${streams.size} file(s) (${intent.type})")
+                }
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleShared(intent)
         val app = application as HermesApp
         setContent {
             MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
@@ -143,10 +176,14 @@ class MainActivity : ComponentActivity() {
                                 checkContract(snap.info)
                                 app.sessionCache.writeTranscript(snap.storedId(), snap.messages)
                                 if (!stillWanted()) return
+                                val draft = sharedDraft
+                                val shared = sharedUris
+                                sharedDraft = null
+                                sharedUris = emptyList()
                                 open = ChatOpen(
                                     row, titleOf(snap),
                                     app.acquireTurnSession(snap.storedId(), snap.session_id, snap),
-                                    chatNotice(snap),
+                                    chatNotice(snap), draft ?: "", shared,
                                 )
                             } catch (e: RpcException) {
                                 if (e.code == 4130L && stillWanted()) {
@@ -265,6 +302,8 @@ class MainActivity : ComponentActivity() {
                                 sendError = sendError,
                                 sending = sending,
                                 sentCount = sentCount,
+                                initialDraft = o.draft,
+                                initialShared = o.shared,
                                 images = app.serverImages,
                                 onBack = {
                                     openingId = null
@@ -272,12 +311,12 @@ class MainActivity : ComponentActivity() {
                                     open = null
                                     sendError = null
                                 },
-                                onSend = { text ->
+                                onSend = { text, attachments ->
                                     scope.launch {
                                         sending = true
                                         sendError = null
                                         try {
-                                            o.session.send(text)
+                                            o.session.send(text, attachments)
                                             sentCount++
                                         } catch (e: Exception) {
                                             val msg = e.userMessage("Couldn't send")
@@ -297,6 +336,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 },
+                                onConsumedShared = { open = o.copy(shared = emptyList()) },
                             )
                         } else when (screen) {
                             Screen.Sessions -> SessionsScreen(
@@ -372,6 +412,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleShared(intent)
     }
 
     override fun onDestroy() {

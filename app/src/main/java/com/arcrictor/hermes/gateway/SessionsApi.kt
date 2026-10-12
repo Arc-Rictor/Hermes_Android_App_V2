@@ -125,6 +125,58 @@ class SessionsApi(
         )
 
     /**
+     * Attach calls for the send flow (PROTOCOL.md §6). Images queue server-side
+     * for the next submit and return their server path; PDFs return a page
+     * summary; files return nothing queueable — the caller appends [FileAttach.refText].
+     */
+    suspend fun attachImage(runtimeId: String, contentBase64: String, filename: String): String {
+        val res = rpc(
+            "image.attach_bytes",
+            buildJsonObject {
+                put("session_id", JsonPrimitive(runtimeId))
+                put("content_base64", JsonPrimitive(contentBase64))
+                put("filename", JsonPrimitive(filename))
+            },
+            timeoutMs = 120_000,
+        )
+        return res["path"]?.jsonPrimitive?.content ?: ""
+    }
+
+    suspend fun attachPdf(runtimeId: String, contentBase64: String, filename: String): String {
+        val res = rpc(
+            "pdf.attach",
+            buildJsonObject {
+                put("session_id", JsonPrimitive(runtimeId))
+                put("content_base64", JsonPrimitive(contentBase64))
+                put("filename", JsonPrimitive(filename))
+            },
+            timeoutMs = 120_000,
+        )
+        // "Result lists rendered pages" — shape defensive; live-covered.
+        val pages = (res["pages"] as? kotlinx.serialization.json.JsonArray)?.size
+            ?: res["count"]?.jsonPrimitive?.content?.toIntOrNull()
+            ?: (res["text"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+                ?.let { return it }
+        return if (pages != null) "$filename: $pages pages attached" else "$filename attached"
+    }
+
+    suspend fun attachFile(runtimeId: String, contentBase64: String, name: String): FileAttach {
+        val res = rpc(
+            "file.attach",
+            buildJsonObject {
+                put("session_id", JsonPrimitive(runtimeId))
+                put("data_url", JsonPrimitive("data:application/octet-stream;base64,$contentBase64"))
+                put("name", JsonPrimitive(name))
+            },
+            timeoutMs = 120_000,
+        )
+        return FileAttach(
+            path = res["path"]?.jsonPrimitive?.content ?: "",
+            refText = res["ref_text"]?.jsonPrimitive?.content ?: "@file:$name",
+        )
+    }
+
+    /**
      * Delete by stored id (an explicit, destructive user action). Closes the live runtime
      * first when we know it — delete refuses (4023) while live.
      */
