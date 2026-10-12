@@ -87,7 +87,7 @@ class AuthApi(
                         cont.resumeWithException(e)
                     }
                     override fun onResponse(call: Call, response: okhttp3.Response) {
-                        cont.resume(response)
+                        cont.resume(response, null)
                     }
                 })
             }

@@ -48,14 +48,16 @@ class TokenManager(
         val code = Pkce.parseNext(next, state)
         onStep("Finishing…")
         val t = api.exchangeToken(code, verifier)
-        return TokenStore.TokenSet(
+        val set = TokenStore.TokenSet(
             accessToken = t.accessToken,
             refreshToken = t.refreshToken,
             provider = t.provider,
             userId = t.userId,
             expiresAt = t.expiresAt,
             baseUrl = api.base,
-        ).also(store::save)
+        )
+        store.save(set)
+        return set
     }
 
     /** Returns valid tokens, refreshing first when within 60 s of expiry. */
@@ -66,14 +68,16 @@ class TokenManager(
             val latest = store.tokens.first() ?: throw LoginError.SessionExpired()
             if (!RefreshPolicy.needsRefresh(latest.expiresAt, clock())) return latest
             val t = apiFor(latest.baseUrl).refreshToken(latest.refreshToken)
-            TokenStore.TokenSet(
+            val set = TokenStore.TokenSet(
                 accessToken = t.accessToken,
                 refreshToken = t.refreshToken,
                 provider = t.provider,
                 userId = t.userId,
                 expiresAt = t.expiresAt,
                 baseUrl = latest.baseUrl,
-            ).also(store::save)
+            )
+            store.save(set)
+            return set
         }
     }
 
