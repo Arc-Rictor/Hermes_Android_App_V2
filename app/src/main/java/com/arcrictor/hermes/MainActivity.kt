@@ -10,7 +10,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
@@ -71,6 +71,10 @@ private fun chatNotice(snap: LiveSessionSnapshot): String? {
     return notices.takeIf { it.isNotEmpty() }?.joinToString("\n")
 }
 
+private fun titleOf(snap: LiveSessionSnapshot, fallback: String): String =
+    (snap.info["title"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        ?.takeIf { it.isNotBlank() } ?: fallback
+
 class MainActivity : ComponentActivity() {
     /** Content shared from another app, awaiting a session pick (R4.3). */
     private var sharedDraft: String? by mutableStateOf(null)
@@ -113,8 +117,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Box(
                         modifier = Modifier.fillMaxSize()
-                            .windowInsetsPadding(WindowInsets.safeDrawing)
-                            .windowInsetsPadding(WindowInsets.ime),
+                            .windowInsetsPadding(WindowInsets.safeDrawing),
                     ) {
                         val scope = rememberCoroutineScope()
                         var authed by rememberSaveable { mutableStateOf(false) }
@@ -167,9 +170,6 @@ class MainActivity : ComponentActivity() {
                         suspend fun openSession(row: SessionRow) {
                             openingId = row.id
                             fun stillWanted() = openingId == row.id
-                            fun titleOf(snap: LiveSessionSnapshot): String =
-                                (snap.info["title"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-                                    ?.takeIf { it.isNotBlank() } ?: row.title
                             try {
                                 val snap = app.sessionsApi.resumeStored(row.id)
                                 liveRuntimes[snap.storedId()] = snap.session_id
@@ -181,7 +181,7 @@ class MainActivity : ComponentActivity() {
                                 sharedDraft = null
                                 sharedUris = emptyList()
                                 open = ChatOpen(
-                                    row, titleOf(snap),
+                                    row, titleOf(snap, row.title),
                                     app.acquireTurnSession(snap.storedId(), snap.session_id, snap),
                                     chatNotice(snap), draft ?: "", shared,
                                 )
@@ -200,7 +200,7 @@ class MainActivity : ComponentActivity() {
                                         )
                                         session.setHistory(msgs)
                                         open = ChatOpen(
-                                            row, titleOf(snap), session,
+                                            row, titleOf(snap, row.title), session,
                                             "Transcript too large for live view — showing a paged copy.",
                                         )
                                     } catch (e2: Exception) {
@@ -347,8 +347,20 @@ class MainActivity : ComponentActivity() {
                                 onCreate = { title ->
                                     scope.launch {
                                         try {
-                                            checkContract(app.sessionsApi.create(title.ifBlank { null }).info)
-                                            refreshSessions()
+                                            // create writes no DB row until first submit, so the new
+                                            // session would not appear in the list: open it directly
+                                            // from the create snapshot instead of refetching.
+                                            val snap = app.sessionsApi.create(title.ifBlank { null })
+                                            checkContract(snap.info)
+                                            val stored = snap.storedId()
+                                            liveRuntimes[stored] = snap.session_id
+                                            openingId = stored
+                                            val name = titleOf(snap, title)
+                                            open = ChatOpen(
+                                                SessionRow(id = stored, title = name), name,
+                                                app.acquireTurnSession(stored, snap.session_id, snap),
+                                                chatNotice(snap),
+                                            )
                                         } catch (e: Exception) {
                                             sessionsError = e.userMessage("Couldn't create")
                                         }
