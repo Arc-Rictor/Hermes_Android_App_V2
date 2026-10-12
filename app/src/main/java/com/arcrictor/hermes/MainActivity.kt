@@ -10,7 +10,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
@@ -117,8 +117,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Box(
                         modifier = Modifier.fillMaxSize()
-                            .windowInsetsPadding(WindowInsets.safeDrawing)
-                            .windowInsetsPadding(WindowInsets.ime),
+                            .windowInsetsPadding(WindowInsets.safeDrawing),
                     ) {
                         val scope = rememberCoroutineScope()
                         var authed by rememberSaveable { mutableStateOf(false) }
