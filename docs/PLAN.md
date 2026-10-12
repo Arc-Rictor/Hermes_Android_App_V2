@@ -30,10 +30,10 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
   token JSON parsing; refresh decision (expiry-60 s, 401 → login, 503 → keep);
   frame classifier (request/response/event/server-request) on recorded strings; redaction.
 - DoD:
-  - [ ] CI green on a feature branch.
-  - [ ] Owner on-device: login succeeds, `gateway.ready` received, `client.capabilities`
-        answered, Diagnostics all green, app restart stays signed in.
-        (`desktop_contract` is first seen in Phase 2's `session.create`.)
+  - [x] CI green on a feature branch.
+  - [x] Owner on-device 2026-10-12: login succeeds, `Connection: READY`,
+        `contract=14 server-request types, heartbeat=true`, Diagnostics green.
+  - [ ] App restart stays signed in (verify on next install).
 
 ## Phase 2 — Sessions
 

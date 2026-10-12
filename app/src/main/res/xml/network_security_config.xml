@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Default: no cleartext anywhere. -->
+    <base-config cleartextTrafficPermitted="false" />
+    <!-- Tailnet only: the Hermes dashboard speaks plain HTTP behind WireGuard encryption. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">100.123.89.114</domain>
+        <domain includeSubdomains="true">ts.net</domain>
+    </domain-config>
+</network-security-config>
