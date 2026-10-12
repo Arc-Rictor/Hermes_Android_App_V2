@@ -1,6 +1,7 @@
 package com.arcrictor.hermes.gateway
 
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -50,21 +51,10 @@ class AuthApi(
             baseUrl.trim().removeSuffix("/").substringAfter("://").substringBefore("/").substringBefore(":")
     }
 
-    private suspend fun Call.awaitBytes(): Pair<Int, ByteArray> =
-        suspendCancellableCoroutine { cont ->
-            cont.invokeOnCancellation { cancel() }
-            enqueue(object : okhttp3.Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    cont.tryResumeWithException(e)
-                }
-                override fun onResponse(call: Call, response: okhttp3.Response) {
-                    response.use {
-                        cont.tryResume(it.code to (it.body?.bytes() ?: ByteArray(0)))
-                            ?.let(cont::completeResume)
-                    }
-                }
-            })
-        }
+    private suspend fun Call.awaitBytes(): Pair<Int, ByteArray> = withContext(Dispatchers.IO) {
+        // Blocking execute: auth calls are short; abandoning the thread on cancel is harmless.
+        execute().use { it.code to (it.body?.bytes() ?: ByteArray(0)) }
+    }
 
     private fun ioError(e: IOException): LoginError.Network =
         LoginError.Network(e, hostOf(base))
@@ -80,17 +70,8 @@ class AuthApi(
             "&code_challenge=${q(challenge)}&code_challenge_method=S256" +
             "&redirect_uri=${q(REDIRECT_URI)}&state=${q(state)}"
         val response = try {
-            suspendCancellableCoroutine<okhttp3.Response> { cont ->
-                val call = client.newCall(Request.Builder().url(url).get().build())
-                cont.invokeOnCancellation { call.cancel() }
-                call.enqueue(object : okhttp3.Callback {
-                    override fun onFailure(call: Call, e: IOException) {
-                        cont.tryResumeWithException(e)
-                    }
-                    override fun onResponse(call: Call, response: okhttp3.Response) {
-                        cont.tryResume(response)?.let(cont::completeResume)
-                    }
-                })
+            withContext(Dispatchers.IO) {
+                client.newCall(Request.Builder().url(url).get().build()).execute()
             }
         } catch (e: IOException) {
             throw ioError(e)

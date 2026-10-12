@@ -1,4 +1,4 @@
-# NOTE 2026-10: androidx latest (compose 1.12, core 1.19) declares minCompileSdk=37,
+# NOTE 2026-10: okhttp 5.x, compose 1.12 and core 1.19 declare minCompileSdk=37,
 # but Google has not published the android-37 platform package (repo tops out at 36).
 # These pins are the newest verified minCompileSdk<=36. Re-check on every phase:
 #   unzip -p <aar> META-INF/com/android/build/gradle/aar-metadata.properties
@@ -9,7 +9,7 @@ composeBom = "2025.12.01"
 coreKtx = "1.17.0"
 activityCompose = "1.10.1"
 lifecycleCompose = "2.8.7"
-okhttp = "5.5.0"
+okhttp = "4.12.0"
 serialization = "1.11.0"
 coroutines = "1.11.0"
 datastore = "1.1.7"
