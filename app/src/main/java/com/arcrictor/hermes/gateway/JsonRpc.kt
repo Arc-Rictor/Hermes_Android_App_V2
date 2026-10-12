@@ -49,8 +49,9 @@ object JsonRpc {
                 id = id,
                 result = obj["result"],
                 error = err?.let {
+                    // codes are JSON numbers; .content reads numbers and strings alike.
                     RpcError(
-                        code = str(it["code"])?.toLongOrNull() ?: -1,
+                        code = (it["code"] as? JsonPrimitive)?.content?.toLongOrNull() ?: -1,
                         message = str(it["message"]) ?: "",
                     )
                 },
