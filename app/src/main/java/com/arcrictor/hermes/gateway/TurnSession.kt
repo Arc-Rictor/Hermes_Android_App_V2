@@ -149,7 +149,7 @@ class TurnSession(
 
     /** Route a server→client request: known cards wait for the user, the rest get -32601. */
     fun handleServerRequest(req: GatewayFrame.ServerRequest): GatewayClient.HandlerAnswer {
-        val card = ServerRequestStore.parseCard(req.id, req.method, req.params)
+        val card = ServerRequests.parseCard(req.id, req.method, req.params)
         if (card == null) {
             log("no handler for server request: ${req.method}")
             return GatewayClient.HandlerAnswer.Error(-32601, "no handler for server request: ${req.method}")
