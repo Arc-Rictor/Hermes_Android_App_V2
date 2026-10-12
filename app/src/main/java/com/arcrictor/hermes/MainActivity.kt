@@ -292,6 +292,7 @@ class MainActivity : ComponentActivity() {
                             val extras by o.session.extras.collectAsStateWithLifecycle()
                             val live by o.session.state.collectAsStateWithLifecycle()
                             val recovering by o.session.recovering.collectAsStateWithLifecycle()
+                            val cards by o.session.cards.collectAsStateWithLifecycle()
                             ChatScreen(
                                 title = o.title,
                                 history = history,
@@ -304,6 +305,7 @@ class MainActivity : ComponentActivity() {
                                 sentCount = sentCount,
                                 initialDraft = o.draft,
                                 initialShared = o.shared,
+                                cards = cards,
                                 images = app.serverImages,
                                 onBack = {
                                     openingId = null
@@ -337,6 +339,33 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onConsumedShared = { open = o.copy(shared = emptyList()) },
+                                onAnswerApproval = { card, choice ->
+                                    scope.launch {
+                                        try {
+                                            o.session.answerApproval(card, choice)
+                                        } catch (e: Exception) {
+                                            sendError = e.userMessage("Couldn't answer")
+                                        }
+                                    }
+                                },
+                                onAnswerClarify = { card, answers ->
+                                    scope.launch {
+                                        try {
+                                            o.session.answerClarify(card, answers)
+                                        } catch (e: Exception) {
+                                            sendError = e.userMessage("Couldn't answer")
+                                        }
+                                    }
+                                },
+                                onAnswerSecret = { card, value ->
+                                    scope.launch {
+                                        try {
+                                            o.session.answerSecret(card, value)
+                                        } catch (e: Exception) {
+                                            sendError = e.userMessage("Couldn't answer")
+                                        }
+                                    }
+                                },
                             )
                         } else when (screen) {
                             Screen.Sessions -> SessionsScreen(

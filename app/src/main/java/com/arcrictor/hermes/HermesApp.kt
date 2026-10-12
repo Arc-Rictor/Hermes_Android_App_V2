@@ -58,6 +58,13 @@ class HermesApp : Application() {
         val existing = turnSessions[storedId]
         if (existing != null && existing.runtimeId == runtimeId) return existing
         existing?.close()
+        // Server→client requests route to the session whose runtime id they name.
+        // Unknown methods get -32601; known cards wait for the user (Phase 5).
+        gateway.serverRequestHandler = { req ->
+            val sid = req.params.string("session_id")
+            turnSessions.values.firstOrNull { it.runtimeId == sid }?.handleServerRequest(req)
+                ?: GatewayClient.HandlerAnswer.Error(-32601, "no handler for server request: ${req.method}")
+        }
         return TurnSession(gateway, sessionsApi, appScope, ::ensureConnected, storedId, runtimeId, snapshot) {
             captureLog.add(it)
         }.also { turnSessions[storedId] = it }

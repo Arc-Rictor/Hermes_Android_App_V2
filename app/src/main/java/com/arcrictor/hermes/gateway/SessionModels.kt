@@ -89,6 +89,8 @@ data class LiveSessionSnapshot(
     val inflight: InflightTurn? = null,
     val queued: QueuedPrompt? = null,
     val open_requests: List<OpenRequestEntry> = emptyList(),
+    /** Snapshot-only approval (no live frame): answered via `approval.respond`. */
+    val pending_approval: JsonObject? = null,
     val running: Boolean? = null,
     val status: String? = null,
 ) {

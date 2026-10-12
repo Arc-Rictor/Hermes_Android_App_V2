@@ -177,6 +177,23 @@ class SessionsApi(
     }
 
     /**
+     * Answer a snapshot-only approval (no live `srq-` frame). Returns how many
+     * pending approvals the answer resolved. 300 s client timeout per PROTOCOL §8.
+     */
+    suspend fun approvalRespond(runtimeId: String, choice: String, requestId: String): Int {
+        val res = rpc(
+            "approval.respond",
+            buildJsonObject {
+                put("session_id", JsonPrimitive(runtimeId))
+                put("choice", JsonPrimitive(choice))
+                put("request_id", JsonPrimitive(requestId))
+            },
+            timeoutMs = 300_000,
+        )
+        return res["resolved"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+    }
+
+    /**
      * Delete by stored id (an explicit, destructive user action). Closes the live runtime
      * first when we know it — delete refuses (4023) while live.
      */
