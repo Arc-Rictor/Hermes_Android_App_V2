@@ -12,8 +12,10 @@ managing the gateway itself (updates, providers, cron) beyond what chat needs.
 ## 2. Requirements
 
 ### R1 Connection & login
-- R1.1 Server URL configurable (default `http://100.123.89.114:9119`), username + password login.
-- R1.2 Login uses the native PKCE code flow (PROTOCOL.md §2); password is sent once, never stored.
+- R1.1 Server URL and username are built in (editable on the login screen); the password is
+  built in from a CI secret (AGENTS.md rule 4), so the app signs in by itself on launch.
+- R1.2 Login uses the native PKCE code flow (PROTOCOL.md §2). Launch reuses saved tokens and
+  only re-sends the password when the saved session is dead.
 - R1.3 Only the token set is persisted: one JSON blob AES-256-GCM-encrypted with a
   non-exportable AndroidKeyStore key, ciphertext stored in DataStore (no
   EncryptedSharedPreferences — deprecated). Access token refreshed proactively (60 s before
@@ -96,9 +98,10 @@ gateway/       GatewayClient: OkHttp WS + JSON-RPC framing, request/response map
                server→client request dispatcher, heartbeat, reconnect, replay.
                TokenManager: PKCE login, refresh, EncryptedDataStore.
 turn/          TurnReducer: pure (TurnState, GatewayEvent) -> TurnState. JVM-tested.
-data/          Room: sessions cache + last-seen transcript cache (shown instantly on open,
-               replaced by the server snapshot). Seq watermarks stay in memory only —
-               after an app kill, recovery uses session.resume.
+data/          SessionCache: sessions list + per-session transcript as JSON files
+               (shown instantly on open, replaced by the server snapshot). No database —
+               the server is the source of truth and the cache is disposable. Seq watermarks
+               stay in memory only — after an app kill, recovery uses session.resume.
 media/         Downscale/convert (JPEG/PNG; HEIC→JPEG), PDF pass-through, base64 framing.
 work/          Foreground service wrapper + notification/progress.
 ```

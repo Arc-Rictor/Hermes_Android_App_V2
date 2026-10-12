@@ -1,6 +1,7 @@
 package com.arcrictor.hermes.gateway
 
 import com.arcrictor.hermes.data.TokenStore
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -11,22 +12,24 @@ object RefreshPolicy {
     fun needsRefresh(expiresAtSec: Long, nowSec: Long): Boolean = nowSec >= expiresAtSec - 60
 }
 
-/**
- * Owns login, token storage and refresh. Single in-flight refresh (Mutex):
- * concurrent 401s reuse it instead of stampeding the server.
- */
 /** Storage seam so the flow is unit-testable without Android. */
 interface TokenStorage {
-    val tokens: kotlinx.coroutines.flow.Flow<TokenStore.TokenSet?>
+    val tokens: Flow<TokenStore.TokenSet?>
     suspend fun save(set: TokenStore.TokenSet)
     suspend fun clear()
-    suspend fun rememberEndpoint(baseUrl: String, user: String)
 }
 
+private fun TokenResponse.toSet(baseUrl: String) =
+    TokenStore.TokenSet(accessToken, refreshToken, provider, userId, expiresAt, baseUrl)
+
+/**
+ * Owns login, token storage and refresh. Single in-flight refresh (Mutex):
+ * concurrent callers reuse it instead of stampeding the server.
+ */
 class TokenManager(
     private val store: TokenStorage,
-    private val apiFor: (baseUrl: String) -> AuthApi = ::AuthApi,
     private val clock: () -> Long = { System.currentTimeMillis() / 1000 },
+    private val apiFor: (baseUrl: String) -> AuthApi = ::AuthApi,
 ) {
     private val refreshMutex = Mutex()
 
@@ -44,43 +47,31 @@ class TokenManager(
         val state = Pkce.state()
         val cookie = api.authorize(Pkce.challenge(verifier), state)
         onStep("Verifying…")
-        val next = api.passwordLogin(cookie, username, password)
-        val code = Pkce.parseNext(next, state)
+        val code = Pkce.parseNext(api.passwordLogin(cookie, username, password), state)
         onStep("Finishing…")
-        val t = api.exchangeToken(code, verifier)
-        val set = TokenStore.TokenSet(
-            accessToken = t.accessToken,
-            refreshToken = t.refreshToken,
-            provider = t.provider,
-            userId = t.userId,
-            expiresAt = t.expiresAt,
-            baseUrl = api.base,
-        )
-        store.save(set)
-        return set
+        return api.exchangeToken(code, verifier).toSet(api.base).also { store.save(it) }
     }
 
-    /** Returns valid tokens, refreshing first when within 60 s of expiry. */
+    /**
+     * Returns valid tokens, refreshing first when within 60 s of expiry.
+     * A dead refresh token clears the store (PROTOCOL.md §2) and throws SessionExpired;
+     * ProviderUnreachable keeps the tokens for a later retry.
+     */
     suspend fun ensureValid(): TokenStore.TokenSet {
         val current = store.tokens.first() ?: throw LoginError.SessionExpired()
         if (!RefreshPolicy.needsRefresh(current.expiresAt, clock())) return current
         return refreshMutex.withLock {
             val latest = store.tokens.first() ?: throw LoginError.SessionExpired()
             if (!RefreshPolicy.needsRefresh(latest.expiresAt, clock())) return latest
-            val t = apiFor(latest.baseUrl).refreshToken(latest.refreshToken)
-            val set = TokenStore.TokenSet(
-                accessToken = t.accessToken,
-                refreshToken = t.refreshToken,
-                provider = t.provider,
-                userId = t.userId,
-                expiresAt = t.expiresAt,
-                baseUrl = latest.baseUrl,
-            )
-            store.save(set)
-            return set
+            try {
+                apiFor(latest.baseUrl).refreshToken(latest.refreshToken).toSet(latest.baseUrl)
+                    .also { store.save(it) }
+            } catch (e: LoginError.SessionExpired) {
+                store.clear()
+                throw e
+            }
         }
     }
 
     suspend fun logout() = store.clear()
-    suspend fun rememberEndpoint(baseUrl: String, user: String) = store.rememberEndpoint(baseUrl, user)
 }

@@ -67,18 +67,14 @@ class TokenStore(private val context: Context) : TokenStorage {
         }
     }
 
-    override suspend fun rememberEndpoint(baseUrl: String, user: String) {
-        context.tokenDataStore.edit {
-            it[BASE_URL] = baseUrl
-            it[SAVED_USER] = user
-        }
-    }
-
     override suspend fun clear() {
         context.tokenDataStore.edit { it.remove(ENC_TOKENS) }
     }
 
-    private fun key(): SecretKey {
+    /** Loaded once per process; KeyStore lookups are slow. */
+    private val secretKey: SecretKey by lazy { loadOrCreateKey() }
+
+    private fun loadOrCreateKey(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (ks.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
         val gen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
@@ -94,7 +90,7 @@ class TokenStore(private val context: Context) : TokenStorage {
 
     private fun encrypt(plain: String): String {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
-            init(Cipher.ENCRYPT_MODE, key())
+            init(Cipher.ENCRYPT_MODE, secretKey)
         }
         val iv = cipher.iv
         val body = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
@@ -104,7 +100,7 @@ class TokenStore(private val context: Context) : TokenStorage {
     private fun decrypt(enc: String): String {
         val raw = Base64.decode(enc, Base64.NO_WRAP)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
-            init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, raw, 0, 12))
+            init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(128, raw, 0, 12))
         }
         return cipher.doFinal(raw, 12, raw.size - 12).toString(Charsets.UTF_8)
     }

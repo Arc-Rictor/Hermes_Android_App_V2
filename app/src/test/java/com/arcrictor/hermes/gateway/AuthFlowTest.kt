@@ -32,7 +32,6 @@ class AuthFlowTest {
             set = null
             tokens.value = null
         }
-        override suspend fun rememberEndpoint(baseUrl: String, user: String) = Unit
     }
 
     @Before fun start() {
@@ -92,9 +91,31 @@ class AuthFlowTest {
         server.stop(0)
     }
 
+    @Test fun `dead refresh token clears the store`() = runTest {
+        val store = FakeStore()
+        store.save(TokenStore.TokenSet("AT", "DEAD", "basic", "kirsty", expiresAt = 0, baseUrl = base))
+        val mgr = TokenManager(store, clock = { 1000 }) { AuthApi(it) }
+        try {
+            mgr.ensureValid()
+            org.junit.Assert.fail("expected SessionExpired")
+        } catch (e: LoginError.SessionExpired) {
+            assertEquals(null, store.set)
+        }
+    }
+
+    @Test fun `expiring token refreshes and persists the new pair`() = runTest {
+        val store = FakeStore()
+        store.save(TokenStore.TokenSet("AT-1", "RT-1", "basic", "kirsty", expiresAt = 1030, baseUrl = base))
+        val mgr = TokenManager(store, clock = { 1000 }) { AuthApi(it) }
+        val set = mgr.ensureValid()
+        assertEquals("AT-2", set.accessToken)
+        assertEquals("RT-2", store.set!!.refreshToken)
+        assertEquals(base, store.set!!.baseUrl)
+    }
+
     @Test fun `TokenManager login end to end`() = runTest {
         val store = FakeStore()
-        val mgr = TokenManager(store, { AuthApi(it) })
+        val mgr = TokenManager(store) { AuthApi(it) }
         val steps = mutableListOf<String>()
         val set = mgr.login(base, "kirsty", "s3cret") { steps.add(it) }
         assertEquals("kirsty", set.userId)

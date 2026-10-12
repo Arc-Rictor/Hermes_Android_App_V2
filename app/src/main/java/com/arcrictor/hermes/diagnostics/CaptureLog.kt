@@ -9,13 +9,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 /**
- * In-memory redacted protocol log (SPEC.md R1.4/R1.5, PLAN.md Phase 1).
- * Everything is redacted on entry; [export] writes a `.jsonl` capture for the share sheet.
+ * In-memory redacted protocol log (SPEC.md R1.4/R1.5). This is the single redaction
+ * point: every line is redacted on entry, so callers may pass raw text.
+ * [export] writes a plain-text capture for the share sheet.
  */
 class CaptureLog(private val maxLines: Int = 2000) {
     private val lock = Any()
@@ -23,21 +23,24 @@ class CaptureLog(private val maxLines: Int = 2000) {
     val lines: StateFlow<List<String>> = _lines
 
     fun add(line: String) {
-        val stamped = "${SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())} ${Redact.text(line)}"
+        val stamped = "${LocalTime.now().format(STAMP)} ${Redact.text(line)}"
         synchronized(lock) {
-            val next = (_lines.value + stamped).takeLast(maxLines)
-            _lines.value = next
+            val cur = _lines.value
+            _lines.value = if (cur.size < maxLines) cur + stamped else cur.drop(cur.size - maxLines + 1) + stamped
         }
     }
 
-    fun clear() {
-        _lines.value = emptyList()
-    }
+    fun clear() = synchronized(lock) { _lines.value = emptyList() }
 
     suspend fun export(context: Context): Uri = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "captures").apply { mkdirs() }
-        val file = File(dir, "capture-${System.currentTimeMillis()}.jsonl")
+        dir.listFiles()?.forEach { it.delete() } // keep only the latest capture
+        val file = File(dir, "hermes-capture-${System.currentTimeMillis()}.txt")
         file.writeText(_lines.value.joinToString("\n"))
         FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+    }
+
+    private companion object {
+        val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
     }
 }

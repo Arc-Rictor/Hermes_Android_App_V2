@@ -4,24 +4,48 @@ Work phases in order. Each phase lists tasks, files, and a Definition of Done.
 DoD is checked against CI (`lintDebug` + `testDebugUnitTest` green) plus the boxes below.
 Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
 
+## Session status (2026-10-12 — session closing, work paused here)
+
+- **Phase 1: done, merged to `main`.** Verified on-device (login → READY, 14 server-request
+  types, heartbeat). APKs named `hermes-debug-build-<run number>`.
+- **Phase 2: code complete on branch `phase-2-sessions`, CI green (build 30), NOT merged,
+  NOT tested on-device.** Sessions list/create/rename/delete, transcript history with tool
+  rows, thinking expander, `@image:` thumbnails, JSON-file cache, auto-login on launch with
+  baked-in password (`HERMES_PASSWORD` CI secret set; password verified present in the APK).
+- **Design direction: decided, parked for Phase 8.** Canon world (Claude/Gemini/ChatGPT bar),
+  one fixed Hermes blue, light leads. Contract: `.impeccable/surfaces/*chatscreen*.md`;
+  comps: `.impeccable/mocks/decision/`; product truth: `PRODUCT.md`.
+- **Credentials:** server URL + username in `config/Defaults.kt`; password only in the
+  `HERMES_PASSWORD` CI secret and baked into APKs — never in source. Rotate it per
+  SERVER.md §5 when convenient (it appears in an old chat transcript).
+- **Next:** owner installs build 30, checks open-a-session + rotate-mid-session, then merge
+  `phase-2-sessions` → `main` and start Phase 3 (live chat). SERVER.md §2 (poppler for PDFs)
+  is due before Phase 4; §4 (ntfy + messaging gateway) before Phase 7; the 4 CI signing
+  secrets are still pending (without them every build uses the runner's throwaway debug key).
+- **Stack reality (see AGENTS.md):** compileSdk/targetSdk/minSdk 36 — Google has not
+  published the android-37 platform. No Room (no KSP for Kotlin 2.4); OkHttp 4.12.0.
+
 ## Phase 0 — Specs & server prerequisites (architect + owner)
 
 - [x] AGENTS.md, SPEC.md, PROTOCOL.md, PLAN.md, SERVER.md written and verified against
-      Hermes v0.21.6 source.
-- [ ] Owner: SERVER.md §1 (stable signing secret) and §3 (exposure check) before Phase 1
-      on-device testing; §2 before Phase 4; §4 before Phase 7.
-- [ ] Owner: create the 4 CI signing secrets (AGENTS.md "CI signing") before Phase 1 merges.
+      Hermes v0.21.6 source (plus live against the server: login, WS handshake, restart-proof
+      refresh, approval/contract versions).
+- [x] Owner/server: SERVER.md §1 (signing secret — verified restart-proof) and §3
+      (9119 tailnet-only, verified) done 2026-10-11. §2 due before Phase 4; §4 before Phase 7.
+- [x] `HERMES_PASSWORD` CI secret set; auto-login working (password confirmed in APK).
+- [ ] Owner: create the 4 CI signing secrets (AGENTS.md "CI signing").
 
 ## Phase 1 — Skeleton, CI, login
 
-- Tasks: Gradle wrapper, version catalog, `app/` module (min/target/compile 37),
+- Tasks: Gradle wrapper, version catalog, `app/` module (min/target/compile 36 —
+  37 unpublished, see status block),
   network security config (cleartext only `100.123.89.114`, `*.ts.net`),
   `.github/workflows/android.yml` (assemble + lint + unit tests; debug signing via secrets),
   Login screen (URL default `http://100.123.89.114:9119`, username, password),
   `TokenManager` (PKCE flow §2, proactive refresh, Keystore-backed DataStore),
   `GatewayClient` skeleton (OkHttp, connect with `?ticket=`, ready + capabilities handshake §3),
   Diagnostics screen logging each handshake step (redacted per SPEC R1.5) with
-  "Export capture" (redacted frames as `.jsonl` via the share sheet).
+  "Export capture" (redacted frames as `.txt` via the share sheet).
 - Files: `settings.gradle.kts`, `gradle/libs.versions.toml`, `app/build.gradle.kts`,
   `AndroidManifest.xml`, `network_security_config.xml`,
   `ui/LoginScreen.kt`, `ui/DiagnosticsScreen.kt`,
@@ -37,16 +61,20 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
 
 ## Phase 2 — Sessions
 
-- Tasks: session list/create/rename/delete (close live session before delete — 4023);
+- Tasks: session list/create/rename/delete (close live session before delete — 4023;
+  rename uses lazy resume and never closes: the runtime may be shared with Desktop);
   open = resume with `inline_images:false` (4130 → REST paged fallback, PROTOCOL §1);
   check `info.desktop_contract` (≠8 → banner, PROTOCOL §3);
   `@image:` thumbnails via `/api/media`;
   render history rows (§7) incl. `@image:`/`@file:` refs, reasoning sidecars, tool rows;
   `sessions.changed` → refetch; persist stored id per open session; Sessions screen.
-- Files: `gateway/SessionsApi.kt`, `data/SessionStore.kt` (Room),
-  `ui/SessionsScreen.kt`, `ui/HistoryList.kt`.
+- Files: `gateway/SessionsApi.kt`, `gateway/SessionModels.kt`, `gateway/Transcript.kt`,
+  `data/SessionCache.kt` (JSON files, not Room — no KSP exists for Kotlin 2.4),
+  `media/ServerImages.kt`, `ui/SessionsScreen.kt`, `ui/HistoryScreen.kt`.
 - Tests: resume-JSON parsing incl. `inflight`/`open_requests`; history projection cases
-  (tool-only row dropped, `@image:` line parsed).
+  (tool-only row dropped, `@image:` line parsed incl. quoting, hidden/`[System:`/empty
+  skipped, reasoning attached); `@ref` quoting variants; cache filename sanitising.
+  (`SessionsApi` WS calls are covered live, not mocked.)
 - DoD:
   - [ ] List, create, rename, delete round-trip against live server.
   - [ ] A session with past tool calls renders transcript + tool rows correctly.
@@ -120,9 +148,30 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
 - DoD:
   - [ ] Cron/agent message arrives with app closed; tap opens the right session.
 
-## Phase 8 — Polish
+## Design direction (decided 2026-10-12, built in Phase 8)
 
-- Tasks: code blocks + tables in reply rendering; haptics on state changes;
-  predictive back; empty/loading/error states per screen; app icon; release build check.
+The visual world is chosen and parked: the category-standard Material 3 AI chat app, peers
+Claude / Gemini / ChatGPT for Android, one fixed Hermes blue (#2563EB seed, no Dynamic
+Color), light theme leading. Direction contract: `.impeccable/surfaces/*chatscreen*.md`;
+critique reference: `.impeccable/mocks/decision/canon.png`; product truth: `PRODUCT.md`.
+
+**Phases 3–7 build the agreed structure with default Material 3 styling** so Phase 8 restyles
+rather than re-lays-out:
+- Chat: top app bar with session title + live activity subtitle (from TurnReducer);
+  user turns in bubbles, Hermes replies unbubbled full-width; tool use grouped as a
+  collapsible "Used N tools" row; pill composer with attach left, circular send right that
+  becomes Stop during a turn; a pending approval pins above the composer.
+- No ad-hoc colours, fonts or spacing in screens: use `MaterialTheme` roles and type scale
+  only, so the Phase 8 theme swap reaches everything.
+
+## Phase 8 — Design build + polish
+
+- Tasks: implement the direction contract via the impeccable skill (code-led): Hermes
+  theme (fixed blue scheme, light + dark), component restyle across all screens, motion
+  (send↔Stop morph, activity-line crossfade, honouring Remove animations), session list
+  detail, launcher icon; code blocks + tables in replies; haptics; predictive back;
+  empty/loading/error states; release build check. Then the finish review on emulator/device
+  screenshots (phone, light + dark, font scale 1.3) and the documenter writes DESIGN.md.
 - DoD:
+  - [ ] Finish review verdict recorded; DESIGN.md + `.impeccable/design.json` written.
   - [ ] SPEC.md §4 acceptance boxes all hold on the Pixel.

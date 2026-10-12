@@ -16,8 +16,26 @@ android {
         applicationId = "com.arcrictor.hermes"
         minSdk = 36
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-phase1"
+        // CI build number makes every APK identifiable (Diagnostics shows it).
+        val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = build
+        versionName = "0.2.0 (build $build)"
+        // Owner password: local.properties `hermes.password` (gitignored) or env
+        // HERMES_PASSWORD (CI secret). Baked into the APK — never commit it. Empty = manual login.
+        val hermesPassword: String = run {
+            val fromFile = try {
+                file("local.properties").takeIf { it.isFile }
+                    ?.readLines()
+                    ?.firstOrNull { it.trimStart().startsWith("hermes.password=") }
+                    ?.substringAfter("=")
+                    ?.trim()
+            } catch (_: Exception) {
+                null
+            }
+            (fromFile ?: System.getenv("HERMES_PASSWORD") ?: "")
+                .replace("\\", "\\\\").replace("\"", "\\\"")
+        }
+        buildConfigField("String", "HERMES_PASSWORD", "\"$hermesPassword\"")
     }
 
     // Debug signing from CI secrets when present; otherwise the default debug key.
@@ -53,6 +71,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
