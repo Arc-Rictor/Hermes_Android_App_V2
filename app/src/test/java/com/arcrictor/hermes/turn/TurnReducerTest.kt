@@ -13,14 +13,14 @@ class TurnReducerTest {
     /** A recorded turn: start → thinking → tool (reasoning interleaved) → deltas → complete. */
     private val recordedTurn = listOf(
         """{"jsonrpc":"2.0","method":"event","params":{"type":"message.start","session_id":"2425776e","seq":11}}""",
-        """{"jsonrpc":"2.0","method":"event","params":{"type":"status.update","session_id":"2425776e","seq":12,"payload":{"kind":"status","text":"Planning"}}}}""",
-        """{"jsonrpc":"2.0","method":"event","params":{"type":"reasoning.delta","session_id":"2425776e","seq":13,"payload":{"text":"Let me check the logs"}}}}""",
-        """{"jsonrpc":"2.0","method":"event","params":{"type":"tool.generating","session_id":"2425776e","seq":14,"payload":{"name":"terminal"}}}}""",
-        """{"jsonrpc":"2.0","method":"event","params":{"type":"tool.start","session_id":"2425776e","seq":15,"payload":{"tool_id":"c1","name":"terminal","args_text":"ls /var/log"}}}}""",
-        """{"jsonrpc":"2.0","method":"event","params":{"type":"reasoning.delta","session_id":"2425776e","seq":16,"payload":{"text":" while that runs"}}}}""",
-        """{"jsonrpc":"2.0","method":"event","params":{"type":"tool.complete","session_id":"2425776e","seq":17,"payload":{"tool_id":"c1","name":"terminal","duration_s":2.5,"summary":"3 files"}}}}""",
-        """{"jsonrpc":"2.0","method":"event","params":{"type":"message.delta","session_id":"2425776e","seq":18,"payload":{"text":"Found "}}}}""",
-        """{"jsonrpc":"2.0","method":"event","params":{"type":"message.delta","session_id":"2425776e","seq":19,"payload":{"text":"3 files."}}}}""",
+        """{"jsonrpc":"2.0","method":"event","params":{"type":"status.update","session_id":"2425776e","seq":12,"payload":{"kind":"status","text":"Planning"}}}""",
+        """{"jsonrpc":"2.0","method":"event","params":{"type":"reasoning.delta","session_id":"2425776e","seq":13,"payload":{"text":"Let me check the logs"}}}""",
+        """{"jsonrpc":"2.0","method":"event","params":{"type":"tool.generating","session_id":"2425776e","seq":14,"payload":{"name":"terminal"}}}""",
+        """{"jsonrpc":"2.0","method":"event","params":{"type":"tool.start","session_id":"2425776e","seq":15,"payload":{"tool_id":"c1","name":"terminal","args_text":"ls /var/log"}}}""",
+        """{"jsonrpc":"2.0","method":"event","params":{"type":"reasoning.delta","session_id":"2425776e","seq":16,"payload":{"text":" while that runs"}}}""",
+        """{"jsonrpc":"2.0","method":"event","params":{"type":"tool.complete","session_id":"2425776e","seq":17,"payload":{"tool_id":"c1","name":"terminal","duration_s":2.5,"summary":"3 files"}}}""",
+        """{"jsonrpc":"2.0","method":"event","params":{"type":"message.delta","session_id":"2425776e","seq":18,"payload":{"text":"Found "}}}""",
+        """{"jsonrpc":"2.0","method":"event","params":{"type":"message.delta","session_id":"2425776e","seq":19,"payload":{"text":"3 files."}}}""",
         """{"jsonrpc":"2.0","method":"event","params":{"type":"message.complete","session_id":"2425776e","seq":20,"payload":{"usage":{"input":12400,"output":3100}}}}""",
     )
 
@@ -64,7 +64,7 @@ class TurnReducerTest {
     @Test fun `complete with error becomes Error`() {
         val state = run(listOf(
             """{"jsonrpc":"2.0","method":"event","params":{"type":"message.start","session_id":"a","seq":1}}""",
-            """{"jsonrpc":"2.0","method":"event","params":{"type":"message.complete","session_id":"a","seq":2,"payload":{"error":"boom went wrong"}}}}""",
+            """{"jsonrpc":"2.0","method":"event","params":{"type":"message.complete","session_id":"a","seq":2,"payload":{"error":"boom went wrong"}}}""",
         ))
         assertEquals(TurnActivity.Error("boom went wrong"), state.activity)
     }
@@ -73,7 +73,7 @@ class TurnReducerTest {
         for (status in listOf("interrupted", "stopped", "cancelled", "frobnicate")) {
             val state = run(listOf(
                 """{"jsonrpc":"2.0","method":"event","params":{"type":"message.start","session_id":"a","seq":1}}""",
-                """{"jsonrpc":"2.0","method":"event","params":{"type":"message.complete","session_id":"a","seq":2,"payload":{"status":"$status"}}}}""",
+                """{"jsonrpc":"2.0","method":"event","params":{"type":"message.complete","session_id":"a","seq":2,"payload":{"status":"$status"}}}""",
             ))
             assertEquals(TurnActivity.Stopped(status), state.activity)
         }
@@ -82,9 +82,9 @@ class TurnReducerTest {
     @Test fun `interim already streamed is skipped, else noted`() {
         val state = run(listOf(
             """{"jsonrpc":"2.0","method":"event","params":{"type":"message.start","session_id":"a","seq":1}}""",
-            """{"jsonrpc":"2.0","method":"event","params":{"type":"message.delta","session_id":"a","seq":2,"payload":{"text":"hi"}}}}""",
-            """{"jsonrpc":"2.0","method":"event","params":{"type":"message.interim","session_id":"a","seq":3,"payload":{"text":"hi","already_streamed":true}}}}""",
-            """{"jsonrpc":"2.0","method":"event","params":{"type":"message.interim","session_id":"a","seq":4,"payload":{"text":"checking something","already_streamed":false}}}}""",
+            """{"jsonrpc":"2.0","method":"event","params":{"type":"message.delta","session_id":"a","seq":2,"payload":{"text":"hi"}}}""",
+            """{"jsonrpc":"2.0","method":"event","params":{"type":"message.interim","session_id":"a","seq":3,"payload":{"text":"hi","already_streamed":true}}}""",
+            """{"jsonrpc":"2.0","method":"event","params":{"type":"message.interim","session_id":"a","seq":4,"payload":{"text":"checking something","already_streamed":false}}}""",
         ))
         assertEquals("hi", state.reply)
         assertEquals(listOf("checking something"), state.notes)
@@ -93,7 +93,7 @@ class TurnReducerTest {
     @Test fun `complete for unknown tool is ignored`() {
         val state = run(listOf(
             """{"jsonrpc":"2.0","method":"event","params":{"type":"message.start","session_id":"a","seq":1}}""",
-            """{"jsonrpc":"2.0","method":"event","params":{"type":"tool.complete","session_id":"a","seq":2,"payload":{"tool_id":"ghost","name":"terminal"}}}}""",
+            """{"jsonrpc":"2.0","method":"event","params":{"type":"tool.complete","session_id":"a","seq":2,"payload":{"tool_id":"ghost","name":"terminal"}}}""",
         ))
         assertTrue(state.tools.isEmpty())
         assertTrue(state.activity is TurnActivity.Working)
@@ -102,8 +102,8 @@ class TurnReducerTest {
     @Test fun `risk flag lands on the open entry`() {
         val state = run(listOf(
             """{"jsonrpc":"2.0","method":"event","params":{"type":"message.start","session_id":"a","seq":1}}""",
-            """{"jsonrpc":"2.0","method":"event","params":{"type":"tool.start","session_id":"a","seq":2,"payload":{"tool_id":"c9","name":"terminal"}}}}""",
-            """{"jsonrpc":"2.0","method":"event","params":{"type":"tool.output_risk","session_id":"a","seq":3,"payload":{"tool_id":"c9","name":"terminal"}}}}""",
+            """{"jsonrpc":"2.0","method":"event","params":{"type":"tool.start","session_id":"a","seq":2,"payload":{"tool_id":"c9","name":"terminal"}}}""",
+            """{"jsonrpc":"2.0","method":"event","params":{"type":"tool.output_risk","session_id":"a","seq":3,"payload":{"tool_id":"c9","name":"terminal"}}}""",
         ))
         assertTrue(state.tools[0].risky)
         assertEquals(TurnActivity.UsingTool("terminal"), state.activity)
