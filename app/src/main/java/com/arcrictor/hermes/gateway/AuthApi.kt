@@ -55,11 +55,12 @@ class AuthApi(
             cont.invokeOnCancellation { cancel() }
             enqueue(object : okhttp3.Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    cont.resumeWithException(e)
+                    cont.tryResumeWithException(e)
                 }
                 override fun onResponse(call: Call, response: okhttp3.Response) {
                     response.use {
-                        cont.resume(it.code to (it.body?.bytes() ?: ByteArray(0)))
+                        cont.tryResume(it.code to (it.body?.bytes() ?: ByteArray(0)))
+                            ?.let(cont::completeResume)
                     }
                 }
             })
@@ -84,10 +85,10 @@ class AuthApi(
                 cont.invokeOnCancellation { call.cancel() }
                 call.enqueue(object : okhttp3.Callback {
                     override fun onFailure(call: Call, e: IOException) {
-                        cont.resumeWithException(e)
+                        cont.tryResumeWithException(e)
                     }
                     override fun onResponse(call: Call, response: okhttp3.Response) {
-                        cont.resume(response, null)
+                        cont.tryResume(response)?.let(cont::completeResume)
                     }
                 })
             }
