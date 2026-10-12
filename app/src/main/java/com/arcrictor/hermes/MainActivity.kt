@@ -19,8 +19,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.arcrictor.hermes.config.Defaults
-import com.arcrictor.hermes.gateway.AuthApi
+import com.arcrictor.hermes.gateway.GatewayClient
 import com.arcrictor.hermes.gateway.GatewayFrame
+import com.arcrictor.hermes.gateway.LiveSessionSnapshot
 import com.arcrictor.hermes.gateway.LoginError
 import com.arcrictor.hermes.gateway.RpcException
 import com.arcrictor.hermes.gateway.SessionRow
@@ -33,12 +34,10 @@ import com.arcrictor.hermes.ui.LoginUiState
 import com.arcrictor.hermes.ui.SessionsScreen
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-private sealed interface Screen {
-    data object Sessions : Screen
-    data object Diagnostics : Screen
-}
+private enum class Screen { Sessions, Diagnostics }
 
 private data class OpenSession(
     val row: SessionRow,
@@ -47,6 +46,31 @@ private data class OpenSession(
     val messages: List<UiMessage>,
     val notice: String?,
 )
+
+private fun Exception.userMessage(prefix: String) = (this as? LoginError)?.message ?: "$prefix: $message"
+
+/** Transcript + notices for a resume snapshot (pure; no UI state). */
+private fun openSessionFrom(row: SessionRow, snap: LiveSessionSnapshot): OpenSession {
+    val title = (snap.info["title"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        ?.takeIf { it.isNotBlank() } ?: row.title
+    val notices = buildList {
+        if (snap.open_requests.isNotEmpty()) {
+            add("${snap.open_requests.size} request(s) from the agent still need an answer (approvals arrive in Phase 5).")
+        }
+        if (snap.queued != null) add("A queued message is waiting.")
+    }.toMutableList()
+    val liveTail = snap.inflight
+        ?.takeIf { it.assistant.isNotBlank() || it.error != null }
+        ?.let {
+            notices.add("Reconnected mid-turn — showing what streamed so far.")
+            listOf(UiMessage.Assistant(it.assistant.ifBlank { "(no reply yet)" }, null))
+        } ?: emptyList()
+    return OpenSession(
+        row, snap.session_id, title,
+        Transcript.project(snap.messages) + liveTail,
+        notices.takeIf { it.isNotEmpty() }?.joinToString("\n"),
+    )
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,18 +81,19 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
                 val scope = rememberCoroutineScope()
                 var authed by rememberSaveable { mutableStateOf(false) }
-                var screen by remember { mutableStateOf<Screen>(Screen.Sessions) }
+                var screen by rememberSaveable { mutableStateOf(Screen.Sessions) }
                 var baseUrl by rememberSaveable { mutableStateOf(Defaults.BASE_URL) }
                 var username by rememberSaveable { mutableStateOf(Defaults.USERNAME) }
                 var password by rememberSaveable { mutableStateOf(BuildConfig.HERMES_PASSWORD) }
                 var autoTried by rememberSaveable { mutableStateOf(false) }
                 var loginState by remember { mutableStateOf(LoginUiState()) }
-                var readySummary by remember { mutableStateOf<String?>(null) }
                 var sessions by remember { mutableStateOf<List<SessionRow>>(emptyList()) }
                 var sessionsLoading by remember { mutableStateOf(false) }
                 var sessionsError by remember { mutableStateOf<String?>(null) }
                 var contractWarning by remember { mutableStateOf<String?>(null) }
                 var open by remember { mutableStateOf<OpenSession?>(null) }
+                /** Stored id the user most recently asked to open; null after Back. Guards stale results. */
+                var openingId by remember { mutableStateOf<String?>(null) }
                 var historyLoading by remember { mutableStateOf(false) }
                 val liveRuntimes = remember { mutableStateMapOf<String, String>() } // storedId -> runtimeId
                 val connState by app.gateway.connState.collectAsState()
@@ -76,38 +101,22 @@ class MainActivity : ComponentActivity() {
                 val savedUser by app.tokenStore.savedUser.collectAsState(initial = null)
                 val hasSaved by app.tokenStore.tokens.collectAsState(initial = null)
 
-                suspend fun doConnect() {
-                    val tokens = app.tokenManager.ensureValid()
-                    app.captureLog.add("tokens ok for ${tokens.userId}, exp=${tokens.expiresAt}")
-                    val api = AuthApi(tokens.baseUrl, app.http)
-                    val ticket = api.wsTicket(tokens.accessToken)
-                    app.captureLog.add("ticket minted")
-                    val ready = app.gateway.connect(tokens.baseUrl, ticket)
-                    readySummary =
-                        "contract=${ready.capabilities.size} server-request types, heartbeat=${ready.heartbeat}"
-                    app.captureLog.add("ready: $readySummary")
-                }
-
                 suspend fun refreshSessions(silent: Boolean = false) {
                     if (!silent) {
                         sessionsLoading = true
                         sessionsError = null
                     }
                     try {
-                        val rows = app.sessionsApi.list()
-                        sessions = rows
-                        app.sessionCache.writeSessions(rows)
+                        sessions = app.sessionsApi.list().also { app.sessionCache.writeSessions(it) }
                     } catch (e: Exception) {
-                        if (!silent || sessions.isEmpty()) {
-                            sessions = app.sessionCache.readSessions()
-                            if (!silent) sessionsError = (e as? LoginError)?.message ?: "Couldn't load sessions: ${e.message}"
-                        }
+                        if (sessions.isEmpty()) sessions = app.sessionCache.readSessions()
+                        if (!silent) sessionsError = e.userMessage("Couldn't load sessions")
                     } finally {
                         sessionsLoading = false
                     }
                 }
 
-                fun checkContract(info: kotlinx.serialization.json.JsonObject) {
+                fun checkContract(info: JsonObject) {
                     val n = (info["desktop_contract"] as? JsonPrimitive)?.content?.toIntOrNull()
                     if (n != null && n != 8) {
                         contractWarning =
@@ -117,101 +126,83 @@ class MainActivity : ComponentActivity() {
                 }
 
                 suspend fun openSession(row: SessionRow) {
+                    openingId = row.id
                     historyLoading = true
-                    // Instant: cached transcript first.
+                    fun stillWanted() = openingId == row.id
                     val cached = app.sessionCache.readTranscript(row.id)
-                    if (cached != null) {
+                    if (cached != null && stillWanted()) {
                         open = OpenSession(row, liveRuntimes[row.id] ?: "", row.title, Transcript.project(cached), null)
                     }
-                    try {
+                    val result: OpenSession = try {
                         val snap = app.sessionsApi.resumeStored(row.id)
                         liveRuntimes[snap.storedId()] = snap.session_id
                         checkContract(snap.info)
-                        val title = (snap.info["title"] as? JsonPrimitive)
-                            ?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
-                            ?: row.title
                         app.sessionCache.writeTranscript(snap.storedId(), snap.messages)
-                        val notices = mutableListOf<String>()
-                        snap.open_requests.takeIf { it.isNotEmpty() }?.let {
-                            notices.add("${it.size} request(s) from the agent still need an answer (approvals arrive in Phase 5).")
-                        }
-                        snap.queued?.let { notices.add("A queued message is waiting.") }
-                        val liveTail = mutableListOf<UiMessage>()
-                        snap.inflight?.let { infl ->
-                            if (infl.assistant.isNotBlank() || infl.error != null) {
-                                liveTail.add(
-                                    UiMessage.Assistant(
-                                        infl.assistant.ifBlank { "(no reply yet)" },
-                                        null,
-                                    ),
-                                )
-                                notices.add("Reconnected mid-turn — showing what streamed so far.")
-                            }
-                        }
-                        open = OpenSession(
-                            row, snap.session_id, title,
-                            Transcript.project(snap.messages) + liveTail,
-                            notices.takeIf { it.isNotEmpty() }?.joinToString("\n"),
-                        )
+                        openSessionFrom(row, snap)
                     } catch (e: RpcException) {
                         if (e.code == 4130L) {
                             // Transcript too large for live resume: paged REST copy.
                             app.captureLog.add("resume 4130 — falling back to paged history")
                             val msgs = app.sessionsApi.messagesPage(row.id)
                             app.sessionCache.writeTranscript(row.id, msgs)
-                            open = OpenSession(
-                                row, "", row.title, Transcript.project(msgs),
-                                "Transcript too large for live view — showing a paged copy.",
-                            )
+                            OpenSession(row, "", row.title, Transcript.project(msgs),
+                                "Transcript too large for live view — showing a paged copy.")
                         } else {
-                            open = OpenSession(
-                                row, "", row.title,
-                                cached?.let(Transcript::project) ?: emptyList(),
-                                "Couldn't open live session: ${e.message}",
-                            )
+                            OpenSession(row, "", row.title, cached?.let(Transcript::project) ?: emptyList(),
+                                "Couldn't open live session: ${e.message}")
                         }
                     } catch (e: Exception) {
-                        open = OpenSession(
-                            row, "", row.title,
-                            cached?.let(Transcript::project) ?: emptyList(),
-                            "Couldn't open live session: ${(e as? LoginError)?.message ?: e.message}",
-                        )
-                    } finally {
+                        OpenSession(row, "", row.title, cached?.let(Transcript::project) ?: emptyList(),
+                            e.userMessage("Couldn't open live session"))
+                    }
+                    if (stillWanted()) {
+                        open = result
                         historyLoading = false
                     }
                 }
 
-                fun runLogin(fresh: Map<String, String>?) {
+                /** [creds] = fresh password login; null = reuse saved tokens, falling back to the baked-in password. */
+                fun runLogin(creds: Pair<String, String>?) {
                     scope.launch {
                         loginState = LoginUiState(working = true)
                         app.captureLog.clear()
-                        try {
-                            if (fresh != null) {
-                                app.tokenManager.login(
-                                    baseUrl, fresh.getValue("u"), fresh.getValue("p"),
-                                ) { step ->
-                                    loginState = loginState.copy(steps = loginState.steps + step)
-                                    app.captureLog.add(step)
-                                }
-                                app.captureLog.add("login ok")
+                        suspend fun passwordLogin(u: String, p: String) {
+                            app.tokenManager.login(baseUrl, u, p) { step ->
+                                loginState = loginState.copy(steps = loginState.steps + step)
+                                app.captureLog.add(step)
                             }
-                            doConnect()
-                            password = "" // never retain the password in memory longer than needed
+                            app.captureLog.add("login ok")
+                        }
+                        try {
+                            if (creds != null) {
+                                passwordLogin(creds.first, creds.second)
+                                app.ensureConnected()
+                            } else {
+                                try {
+                                    app.ensureConnected()
+                                } catch (e: LoginError.SessionExpired) {
+                                    if (BuildConfig.HERMES_PASSWORD.isBlank()) throw e
+                                    app.captureLog.add("saved session expired — signing in with built-in password")
+                                    passwordLogin(username, BuildConfig.HERMES_PASSWORD)
+                                    app.ensureConnected()
+                                }
+                            }
+                            password = "" // the field never needs to hold it after sign-in
                             loginState = LoginUiState()
                             authed = true
                             screen = Screen.Sessions
-                            refreshSessions()
                         } catch (e: Exception) {
-                            val msg = (e as? LoginError)?.message ?: "Failed: ${e.message}"
+                            val msg = e.userMessage("Failed")
                             app.captureLog.add("ERROR $msg")
                             loginState = LoginUiState(error = msg)
                         }
                     }
                 }
 
-                // sessions.changed → silent refetch while signed in.
+                // While signed in: load the list once, then follow sessions.changed.
                 LaunchedEffect(authed) {
                     if (!authed) return@LaunchedEffect
+                    refreshSessions()
                     app.gateway.frames.collect { frame ->
                         if (frame is GatewayFrame.Event && frame.type == "sessions.changed") {
                             app.captureLog.add("sessions.changed — refetching")
@@ -222,15 +213,15 @@ class MainActivity : ComponentActivity() {
 
                 if (!authed) {
                     LaunchedEffect(Unit) {
-                        // Prefill saved endpoint once.
-                        val b = app.tokenStore.savedBaseUrl.first()
-                        if (b != null) baseUrl = b
-                        val u = app.tokenStore.savedUser.first()
-                        if (u != null && username.isEmpty()) username = u
-                        // Baked-in password: sign in silently on launch (once per process).
-                        if (!autoTried && password.isNotBlank() && username.isNotBlank()) {
+                        app.tokenStore.savedBaseUrl.first()?.let { baseUrl = it }
+                        app.tokenStore.savedUser.first()?.let { if (username.isEmpty()) username = it }
+                        // Sign in silently once per process: saved tokens first, else built-in password.
+                        if (!autoTried) {
                             autoTried = true
-                            runLogin(mapOf("u" to username, "p" to password))
+                            when {
+                                app.tokenStore.tokens.first() != null -> runLogin(null)
+                                password.isNotBlank() && username.isNotBlank() -> runLogin(username to password)
+                            }
                         }
                     }
                     LoginScreen(
@@ -239,7 +230,7 @@ class MainActivity : ComponentActivity() {
                         state = loginState,
                         onBaseUrl = { baseUrl = it }, onUsername = { username = it },
                         onPassword = { password = it },
-                        onLogin = { runLogin(mapOf("u" to username, "p" to password)) },
+                        onLogin = { runLogin(username to password) },
                         onReconnect = { runLogin(null) },
                     )
                 } else if (open != null) {
@@ -250,7 +241,11 @@ class MainActivity : ComponentActivity() {
                         loading = historyLoading,
                         notice = o.notice,
                         images = app.serverImages,
-                        onBack = { open = null },
+                        onBack = {
+                            openingId = null
+                            open = null
+                            historyLoading = false
+                        },
                         onRefresh = { scope.launch { openSession(o.row) } },
                     )
                 } else when (screen) {
@@ -262,47 +257,42 @@ class MainActivity : ComponentActivity() {
                         onCreate = { title ->
                             scope.launch {
                                 try {
-                                    val snap = app.sessionsApi.create(title.ifBlank { null })
-                                    checkContract(snap.info)
+                                    checkContract(app.sessionsApi.create(title.ifBlank { null }).info)
                                     refreshSessions()
                                 } catch (e: Exception) {
-                                    sessionsError = (e as? LoginError)?.message ?: "Couldn't create: ${e.message}"
+                                    sessionsError = e.userMessage("Couldn't create")
                                 }
                             }
                         },
                         onRename = { row, title ->
                             scope.launch {
                                 try {
-                                    val runtime = liveRuntimes[row.id]
-                                    if (runtime != null) {
-                                        app.sessionsApi.setTitle(runtime, title)
-                                    } else {
-                                        // Not live here: resume to rename, then close.
-                                        val snap = app.sessionsApi.resumeStored(row.id)
-                                        app.sessionsApi.setTitle(snap.session_id, title)
-                                        app.sessionsApi.closeRuntime(snap.session_id)
-                                    }
+                                    app.sessionsApi.rename(row.id, liveRuntimes[row.id], title)
                                     refreshSessions()
                                 } catch (e: Exception) {
-                                    sessionsError = (e as? LoginError)?.message ?: "Couldn't rename: ${e.message}"
+                                    sessionsError = e.userMessage("Couldn't rename")
                                 }
                             }
                         },
                         onDelete = { row ->
                             scope.launch {
                                 try {
-                                    app.sessionsApi.deleteStored(row.id, liveRuntimes[row.id])
-                                    liveRuntimes.remove(row.id)
+                                    app.sessionsApi.deleteStored(row.id, liveRuntimes.remove(row.id))
                                     sessions = sessions.filterNot { it.id == row.id }
                                 } catch (e: Exception) {
-                                    sessionsError = (e as? LoginError)?.message ?: "Couldn't delete: ${e.message}"
+                                    sessionsError = e.userMessage("Couldn't delete")
                                 }
                             }
                         },
                         onDiagnostics = { screen = Screen.Diagnostics },
                     )
                     Screen.Diagnostics -> DiagnosticsScreen(
-                        connState = connState, readySummary = readySummary, lines = lines,
+                        connState = connState,
+                        readySummary = app.gateway.readyInfo
+                            ?.takeIf { connState == GatewayClient.ConnState.READY }
+                            ?.let { "${it.capabilities.size} server-request types, heartbeat=${it.heartbeat}" },
+                        versionName = BuildConfig.VERSION_NAME,
+                        lines = lines,
                         onExport = {
                             scope.launch {
                                 val uri = app.captureLog.export(this@MainActivity)
@@ -318,6 +308,7 @@ class MainActivity : ComponentActivity() {
                             scope.launch {
                                 app.gateway.disconnect()
                                 app.tokenManager.logout()
+                                openingId = null
                                 open = null
                                 authed = false
                                 screen = Screen.Sessions
@@ -331,7 +322,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        (application as HermesApp).gateway.disconnect()
+        // Rotation recreates the activity: keep the app-scoped socket alive across it.
+        if (isFinishing && !isChangingConfigurations) (application as HermesApp).gateway.disconnect()
         super.onDestroy()
     }
 }

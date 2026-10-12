@@ -21,7 +21,7 @@ data class HistoryMessage(
     val role: String,
     val text: String? = null,
     val timestamp: Double? = null,
-    val row_id: Int? = null,
+    val row_id: Long? = null,
     val display_kind: String? = null,
     val display_metadata: JsonElement? = null,
     // tool rows:

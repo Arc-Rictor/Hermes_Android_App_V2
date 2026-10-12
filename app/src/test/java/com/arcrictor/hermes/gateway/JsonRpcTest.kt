@@ -60,6 +60,17 @@ class JsonRpcTest {
         assertTrue(JsonRpc.classify("""{"jsonrpc":"2.0"}""") is GatewayFrame.Unparseable)
     }
 
+    @Test fun `builders escape control characters into valid JSON`() {
+        val params = kotlinx.serialization.json.buildJsonObject {
+            put("text", kotlinx.serialization.json.JsonPrimitive("line1\r\n\ttab \u0001 \"q\" \\"))
+        }
+        val frame = JsonRpc.request("a3", "prompt.submit", params)
+        val back = GatewayJson.parseToJsonElement(frame) as kotlinx.serialization.json.JsonObject
+        val text = ((back["params"] as kotlinx.serialization.json.JsonObject)["text"]
+            as kotlinx.serialization.json.JsonPrimitive).content
+        assertEquals("line1\r\n\ttab \u0001 \"q\" \\", text)
+    }
+
     @Test fun `builders produce exact shapes`() {
         val req = JsonRpc.request("a2", "session.create", kotlinx.serialization.json.JsonObject(emptyMap()))
         assertEquals("""{"jsonrpc":"2.0","id":"a2","method":"session.create","params":{}}""", req)

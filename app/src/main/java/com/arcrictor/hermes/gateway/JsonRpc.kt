@@ -3,7 +3,7 @@ package com.arcrictor.hermes.gateway
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.buildJsonObject
 
 /**
  * JSON-RPC framing for /api/ws. See PROTOCOL.md §4.
@@ -78,24 +78,25 @@ object JsonRpc {
         )
     }
 
-    fun request(id: String, method: String, params: JsonObject): String =
-        """{"jsonrpc":"2.0","id":${q(id)},"method":${q(method)},"params":${GatewayJson.encodeToString(JsonObject.serializer(), params)}}"""
+    private fun frame(id: String, body: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit): String =
+        buildJsonObject {
+            put("jsonrpc", JsonPrimitive("2.0"))
+            put("id", JsonPrimitive(id))
+            body()
+        }.toString()
 
-    fun answer(id: String, result: JsonObject): String =
-        """{"jsonrpc":"2.0","id":${q(id)},"result":${GatewayJson.encodeToString(JsonObject.serializer(), result)}}"""
+    fun request(id: String, method: String, params: JsonObject): String = frame(id) {
+        put("method", JsonPrimitive(method))
+        put("params", params)
+    }
 
-    fun errorAnswer(id: String, code: Long, message: String): String =
-        """{"jsonrpc":"2.0","id":${q(id)},"error":{"code":$code,"message":${q(message)}}}"""
+    fun answer(id: String, result: JsonObject): String = frame(id) { put("result", result) }
 
-    private fun q(s: String): String = buildString {
-        append('"')
-        for (c in s) when (c) {
-            '"' -> append("\\\"")
-            '\\' -> append("\\\\")
-            '\n' -> append("\\n")
-            else -> append(c)
-        }
-        append('"')
+    fun errorAnswer(id: String, code: Long, message: String): String = frame(id) {
+        put("error", buildJsonObject {
+            put("code", JsonPrimitive(code))
+            put("message", JsonPrimitive(message))
+        })
     }
 }
 

@@ -25,6 +25,7 @@ import com.arcrictor.hermes.gateway.GatewayClient
 fun DiagnosticsScreen(
     connState: GatewayClient.ConnState,
     readySummary: String?,
+    versionName: String,
     lines: List<String>,
     onExport: () -> Unit,
     onDisconnect: () -> Unit,
@@ -36,6 +37,7 @@ fun DiagnosticsScreen(
     }
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text("Connection: $connState", style = MaterialTheme.typography.titleMedium)
+        Text("App $versionName", style = MaterialTheme.typography.bodySmall)
         readySummary?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
             OutlinedButton(onClick = onBack) { Text("Back") }

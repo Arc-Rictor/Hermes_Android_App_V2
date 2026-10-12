@@ -18,12 +18,8 @@ class SessionCache(context: Context) {
     private val dir = File(context.filesDir, "session-cache").apply { mkdirs() }
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun sessionsFile() = File(dir, "sessions.json")
-    private fun transcriptFile(storedId: String) =
-        File(dir, "transcript-" + storedId.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".json")
-
-    /** Public for tests: the file a stored id maps to. */
-    fun fileFor(storedId: String): File = transcriptFile(storedId)
+    private fun sessionsFile() = File(dir, "sessions.json")
+    private fun transcriptFile(storedId: String) = File(dir, fileNameFor(storedId))
 
     suspend fun readSessions(): List<SessionRow> = withContext(Dispatchers.IO) {
         read(sessionsFile()) ?: emptyList()
@@ -43,6 +39,12 @@ class SessionCache(context: Context) {
                 json.encodeToString(ListSerializer(HistoryMessage.serializer()), messages),
             )
         }
+
+    companion object {
+        /** Stored id → safe file name (no path separators or dots from the id). */
+        fun fileNameFor(storedId: String) =
+            "transcript-" + storedId.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".json"
+    }
 
     private inline fun <reified T> read(file: File): T? = try {
         if (!file.isFile) null

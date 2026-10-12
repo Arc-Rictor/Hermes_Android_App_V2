@@ -24,7 +24,6 @@ class RefreshPolicyTest {
 
     private class FakeStore(var set: TokenStore.TokenSet?) : TokenStorage {
         override val tokens = MutableStateFlow(set)
-        var refreshes = 0
         override suspend fun save(set: TokenStore.TokenSet) {
             this.set = set
             tokens.value = set
@@ -33,7 +32,6 @@ class RefreshPolicyTest {
             set = null
             tokens.value = null
         }
-        override suspend fun rememberEndpoint(baseUrl: String, user: String) = Unit
     }
 
     private fun set(exp: Long) = TokenStore.TokenSet("a", "r", "basic", "u", exp, "http://x")

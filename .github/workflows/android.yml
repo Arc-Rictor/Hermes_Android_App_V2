@@ -41,16 +41,6 @@ jobs:
             echo "No keystore secret; using default debug key."
           fi
 
-      - name: Decode debug keystore (optional)
-        env:
-          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
-        run: |
-          if [ -n "$DEBUG_KEYSTORE_B64" ]; then
-            echo "$DEBUG_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/debug.keystore"
-            echo "DEBUG_KEYSTORE_PATH=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_ENV"
-          else
-            echo "No keystore secret; using default debug key."
-          fi
       - name: Write local.properties (optional secrets)
         env:
           HERMES_PASSWORD: ${{ secrets.HERMES_PASSWORD }}
@@ -60,13 +50,11 @@ jobs:
             printf 'hermes.password=%s\n' "$HERMES_PASSWORD" > app/local.properties
           fi
 
-      - name: Setup Gradle
+      - name: Setup Gradle (caching; version comes from the committed wrapper)
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: 9.8.1
 
       - name: Assemble debug
-        run: gradle assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --stacktrace
         env:
           DEBUG_KEYSTORE_PATH: ${{ env.DEBUG_KEYSTORE_PATH }}
           DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
@@ -74,13 +62,13 @@ jobs:
           DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
 
       - name: Lint
-        run: gradle lintDebug
+        run: ./gradlew lintDebug
 
       - name: Unit tests
-        run: gradle testDebugUnitTest
+        run: ./gradlew testDebugUnitTest
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: hermes-debug
+          name: hermes-debug-build-${{ github.run_number }}
           path: app/build/outputs/apk/debug/*.apk

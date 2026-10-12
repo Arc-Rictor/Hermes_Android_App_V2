@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -31,12 +32,14 @@ class RpcTimeout(method: String) : Exception("Timed out waiting for $method")
  * JSON-RPC over /api/ws. Owns one socket, the request/response map, the heartbeat,
  * and server→client request dispatch. See PROTOCOL.md §3–§4.
  *
- * Phase 1 scope: connect (ticket → ready → capabilities), request/response, heartbeat
- * watchdog, clean shutdown. Reconnect/replay arrives in Phase 3.
+ * Scope so far: connect (ticket → ready → capabilities), request/response, heartbeat
+ * watchdog, clean shutdown. Callers reconnect via HermesApp.ensureConnected();
+ * seq-based replay arrives in Phase 3.
  */
 class GatewayClient(
     private val http: OkHttpClient,
     private val scope: CoroutineScope,
+    /** Sink for protocol lines. Must redact (CaptureLog does) — raw frames pass through. */
     private val log: (String) -> Unit = {},
 ) {
     enum class ConnState { IDLE, CONNECTING, READY, FAILED }
@@ -85,8 +88,10 @@ class GatewayClient(
         _connState.value = ConnState.CONNECTING
         val base = baseUrl.trim().removeSuffix("/")
         val url = "$base/api/ws?ticket=" + URLEncoder.encode(ticket, "UTF-8")
-        log("WS connecting ${Redact.text(url)}")
+        log("WS connecting $url")
         val opened = CompletableDeferred<Unit>()
+        // Must exist before the socket opens: gateway.ready can land right after onOpen.
+        val ready = CompletableDeferred<GatewayFrame.Event>().also { readySignal = it }
         val ws = http.newWebSocket(
             Request.Builder().url(url)
                 .header("Sec-WebSocket-Protocol", "hermes-gateway-v1")
@@ -95,40 +100,39 @@ class GatewayClient(
         )
         socket = ws
         try {
-            withTimeout(15_000) { opened.await() }
-        } catch (e: TimeoutCancellationException) {
-            fail(gen, "connection timed out")
-            throw LoginError.Network(e, AuthApi.hostOf(base))
-        }
-        // Wait for gateway.ready (first server frame).
-        readySignal = CompletableDeferred()
-        val ready = try {
-            withTimeout(15_000) { readySignal!!.await() }
-        } catch (e: TimeoutCancellationException) {
-            fail(gen, "no gateway.ready")
-            throw RpcException(-1, "server did not say hello")
+            try {
+                withTimeout(15_000) { opened.await() }
+            } catch (e: TimeoutCancellationException) {
+                throw LoginError.Network(e, AuthApi.hostOf(base))
+            }
+            val payload = try {
+                withTimeout(15_000) { ready.await() }.payload
+            } catch (e: TimeoutCancellationException) {
+                throw RpcException(-1, "server did not say hello")
+            }
+            val caps = request(
+                "client.capabilities",
+                buildJsonObject { put("server_requests", JsonPrimitive(true)) },
+                gen = gen,
+            )
+            val info = ReadyInfo(
+                heartbeat = (payload["heartbeat"] as? JsonPrimitive)?.content == "true",
+                replayEpoch = (payload["replay_epoch"] as? JsonPrimitive)?.content ?: "",
+                capabilities = (caps["server_requests"] as? JsonArray)
+                    ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+                    ?: emptyList(),
+            )
+            readyInfo = info
+            _connState.value = ConnState.READY
+            log("WS ready (heartbeat=${info.heartbeat}, server_requests=${info.capabilities.size})")
+            if (info.heartbeat) startHeartbeat(gen)
+            return info
+        } catch (e: Exception) {
+            fail(gen, e.message ?: "handshake failed")
+            throw e
         } finally {
             readySignal = null
         }
-        val payload = ready.payload
-        val info = ReadyInfo(
-            heartbeat = (payload["heartbeat"] as? JsonPrimitive)?.content == "true",
-            replayEpoch = (payload["replay_epoch"] as? JsonPrimitive)?.content ?: "",
-            capabilities = emptyList(),
-        )
-        val caps = request(
-            "client.capabilities",
-            buildJsonObject { put("server_requests", JsonPrimitive(true)) },
-            gen = gen,
-        )
-        val names = (caps["server_requests"] as? kotlinx.serialization.json.JsonArray)
-            ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
-            ?: emptyList()
-        readyInfo = info.copy(capabilities = names)
-        _connState.value = ConnState.READY
-        log("WS ready (heartbeat=${info.heartbeat}, server_requests=${names.size})")
-        if (info.heartbeat) startHeartbeat(gen)
-        return readyInfo!!
     }
 
     /** One RPC call. Times out after [timeoutMs] (default 120 s; approvals use 300 s). */
@@ -155,7 +159,6 @@ class GatewayClient(
             resp.error?.let { throw RpcException(it.code, it.message) }
             return resp.result as? JsonObject ?: JsonObject(emptyMap())
         } catch (e: TimeoutCancellationException) {
-            pending.remove(id)
             throw RpcTimeout(method)
         } finally {
             pending.remove(id)
@@ -236,7 +239,7 @@ class GatewayClient(
             if (gen != generation) return
             poke()
             val frame = JsonRpc.classify(text)
-            log("← ${Redact.text(text.take(300))}")
+            log("← ${text.take(300)}")
             when (frame) {
                 is GatewayFrame.Response -> pending.remove(frame.id)?.complete(frame)
                 is GatewayFrame.ServerRequest -> scope.launch {
@@ -276,6 +279,13 @@ class GatewayClient(
                 opened.completeExceptionally(LoginError.Http(code ?: -1, reason))
             } else if (gen == generation) {
                 fail(gen, t.message ?: "socket failed")
+            }
+        }
+
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            webSocket.close(1000, null)
+            if (gen == generation && _connState.value != ConnState.IDLE) {
+                fail(gen, "server closed ($code)")
             }
         }
 

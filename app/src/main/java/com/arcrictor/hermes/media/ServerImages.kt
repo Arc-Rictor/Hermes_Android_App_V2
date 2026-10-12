@@ -2,6 +2,9 @@ package com.arcrictor.hermes.media
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.LruCache
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -25,26 +28,45 @@ import java.util.concurrent.ConcurrentHashMap
  * (PROTOCOL.md §1) and hold decoded bitmaps in memory only.
  */
 class ServerImages(private val api: SessionsApi) {
-    private val cache = ConcurrentHashMap<String, Bitmap>()
+    /** ~32 MB of decoded pixels, LRU by byte size. */
+    private val cache = object : LruCache<String, Bitmap>(32 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap) = value.allocationByteCount
+    }
     private val failed = ConcurrentHashMap.newKeySet<String>()
 
     suspend fun bitmap(path: String): Bitmap? {
-        cache[path]?.let { return it }
+        cache.get(path)?.let { return it }
         if (path in failed) return null
         return try {
             val bytes = api.fetchMedia(path)
-            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            withContext(Dispatchers.Default) { decodeSampled(bytes, MAX_EDGE) }
+                ?.also { cache.put(path, it) }
                 ?: throw IllegalArgumentException("not an image")
-            // Downscale memory hogs: cap at 1568 px like uploads.
-            val scaled = if (maxOf(bmp.width, bmp.height) > 1568) {
-                val f = 1568f / maxOf(bmp.width, bmp.height)
-                Bitmap.createScaledBitmap(bmp, (bmp.width * f).toInt(), (bmp.height * f).toInt(), true)
-            } else bmp
-            cache[path] = scaled
-            scaled
         } catch (_: Exception) {
             failed.add(path)
             null
+        }
+    }
+
+    companion object {
+        const val MAX_EDGE = 1568
+
+        /** Decodes at the largest power-of-two subsample that keeps the long edge ≥ [maxEdge]. */
+        fun decodeSampled(bytes: ByteArray, maxEdge: Int): Bitmap? {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+            val opts = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize(maxOf(bounds.outWidth, bounds.outHeight), maxEdge)
+            }
+            return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        }
+
+        /** Pure, testable: power-of-two divisor so longEdge / size stays ≥ maxEdge. */
+        fun sampleSize(longEdge: Int, maxEdge: Int): Int {
+            var size = 1
+            while (longEdge / (size * 2) >= maxEdge) size *= 2
+            return size
         }
     }
 }

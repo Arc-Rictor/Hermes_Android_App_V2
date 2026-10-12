@@ -6,11 +6,11 @@ Read `docs/SPEC.md`, then `docs/PROTOCOL.md`, then the phase file in `docs/PLAN.
 ## Stack (fixed)
 
 - Kotlin, Jetpack Compose (Material 3), single Gradle module, no DI framework.
-- OkHttp 4.x (HTTP + WebSocket), kotlinx.serialization, Room, DataStore, CameraX, Coil 3.
-- `minSdk 37`, `targetSdk 37`, `compileSdk 37` (Android 17 = API 37). Java 17.
-  Use the latest **stable** AGP, Kotlin, Compose BOM and library versions at the time of
-  Phase 1 that support compileSdk 37; pin them in `gradle/libs.versions.toml`. No alphas/betas
-  except where no stable release supports API 37 (note it in the version catalog).
+- OkHttp 4.12 (HTTP + WebSocket), kotlinx.serialization, DataStore. No Room (no KSP for
+  Kotlin 2.4 — the session cache is JSON files). CameraX arrives in Phase 4.
+- `minSdk`/`targetSdk`/`compileSdk` **36** until Google publishes the android-37 platform
+  (the Pixel runs Android 17 = API 37; a 36 build runs on it). Java 17. AGP 9.4 / Kotlin 2.4.
+  Stable versions only, pinned in `gradle/libs.versions.toml` with the reason for each pin.
 - Package: `com.arcrictor.hermes`. App name: Hermes.
 - Server: Hermes dashboard **v0.21.6** at `http://100.123.89.114:9119` (Tailscale only).
 
@@ -24,8 +24,11 @@ Read `docs/SPEC.md`, then `docs/PROTOCOL.md`, then the phase file in `docs/PLAN.
    `google-services.json`. Debug keystore for CI signing comes from GitHub secrets only.
 3. **No local Android SDK here — verify via CI.** Push to a feature branch and watch
    `.github/workflows/android.yml`. Never push to `main`; maintainer merges.
-4. **Password is typed once, never stored.** Persist only the token set
-   (access/refresh/provider/user_id/expires_at), encrypted via Android Keystore + DataStore.
+4. **Credentials.** Owner decision (2026-10-12): server URL + username are constants in
+   `config/Defaults.kt`; the password is baked into the APK via BuildConfig from the
+   `HERMES_PASSWORD` CI secret (or gitignored `app/local.properties`) — never in source.
+   The app persists only the token set (Keystore-encrypted DataStore), reuses it on launch,
+   and uses the baked password only when the saved session is dead.
 5. **Cleartext HTTP only for the tailnet.** Network security config permits cleartext
    solely for `100.123.89.114` and `*.ts.net`. Everything else is HTTPS-only.
 6. **Single source of truth for turn state:** the `TurnReducer` (pure function:
@@ -52,7 +55,7 @@ Read `docs/SPEC.md`, then `docs/PROTOCOL.md`, then the phase file in `docs/PLAN.
 ## Build & check
 
 ```bash
-./gradlew assembleDebug          # CI runs this; also lintDebug + testDebugUnitTest
+./gradlew assembleDebug          # CI runs this (via the committed wrapper); also lintDebug + testDebugUnitTest
 ```
 
 - Unit tests are JVM-only (`src/test/`), replaying recorded gateway frames — no network, no emulator.

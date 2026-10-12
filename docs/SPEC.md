@@ -12,8 +12,10 @@ managing the gateway itself (updates, providers, cron) beyond what chat needs.
 ## 2. Requirements
 
 ### R1 Connection & login
-- R1.1 Server URL configurable (default `http://100.123.89.114:9119`), username + password login.
-- R1.2 Login uses the native PKCE code flow (PROTOCOL.md §2); password is sent once, never stored.
+- R1.1 Server URL and username are built in (editable on the login screen); the password is
+  built in from a CI secret (AGENTS.md rule 4), so the app signs in by itself on launch.
+- R1.2 Login uses the native PKCE code flow (PROTOCOL.md §2). Launch reuses saved tokens and
+  only re-sends the password when the saved session is dead.
 - R1.3 Only the token set is persisted: one JSON blob AES-256-GCM-encrypted with a
   non-exportable AndroidKeyStore key, ciphertext stored in DataStore (no
   EncryptedSharedPreferences — deprecated). Access token refreshed proactively (60 s before
