@@ -11,6 +11,7 @@ import android.util.Base64
 import java.io.File
 import java.io.InputStream
 import java.util.UUID
+import kotlin.math.roundToInt
 
 /**
  * Pure, JVM-tested attachment math and naming (SPEC R4.2, PROTOCOL §6).
@@ -37,14 +38,14 @@ object AttachmentPlan {
         val longest = maxOf(width, height)
         if (longest <= MAX_SIDE_PX) return width to height
         val scale = MAX_SIDE_PX.toDouble() / longest
-        return maxOf(1, (width * scale).toInt()) to maxOf(1, (height * scale).toInt())
+        return maxOf(1, (width * scale).roundToInt()) to maxOf(1, (height * scale).roundToInt())
     }
 
     /** The server checks the filename suffix first, so every image is `*.jpg`. */
     fun jpgName(original: String?): String {
-        val base = original?.substringAfterLast('/')?.substringAfterLast('\\')
-            ?.substringBeforeLast('.', missingDelimiterValue = "")?.ifBlank { null }
-            ?: "image"
+        val file = original?.substringAfterLast('/')?.substringAfterLast('\\')?.ifBlank { null }
+            ?: return "image.jpg"
+        val base = file.substringBeforeLast('.', missingDelimiterValue = file).ifBlank { "image" }
         return "$base.jpg"
     }
 
