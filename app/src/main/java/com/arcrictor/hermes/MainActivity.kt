@@ -38,6 +38,7 @@ import com.arcrictor.hermes.gateway.GatewayFrame
 import com.arcrictor.hermes.gateway.LiveSessionSnapshot
 import com.arcrictor.hermes.gateway.LoginError
 import com.arcrictor.hermes.gateway.RpcException
+import com.arcrictor.hermes.gateway.SessionDeepLink
 import com.arcrictor.hermes.gateway.SessionRow
 import com.arcrictor.hermes.gateway.TurnSession
 import com.arcrictor.hermes.ui.ChatScreen
@@ -85,6 +86,7 @@ class MainActivity : ComponentActivity() {
 
     private fun routeNotification(intent: Intent?) {
         notificationSessionId = intent?.getStringExtra(TurnService.EXTRA_STORED_ID)
+            ?: SessionDeepLink.storedId(intent?.dataString)
     }
 
     private fun handleShared(intent: Intent?) {

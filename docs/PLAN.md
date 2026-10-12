@@ -15,8 +15,9 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
 - **Phase 4: done, merged to `main`** (plus the open-new-session-directly fix and the
   adjustResize keyboard fix). Verified on-device (camera/gallery/PDF/zip, 11 MB
   refusal, share-receive, new-chat creation).
-- **Phase 5: code complete on branch `phase-5-approvals`, CI green, NOT merged,
-  NOT tested on-device.** Approvals (offered choices only, `once` default path),
+- **Phase 5: code merged to `main` as part of Phase 6; CI green, but approval
+  DoD is NOT met and the feature was NOT tested on-device.** Approvals (offered
+  choices only, `once` default path),
   clarify (options + free text, one submit), masked sudo/secret/vault inputs,
   snapshot rehydration (`open_requests` + `pending_approval` via `approval.respond`),
   expiry via `request.cancel`/`approval.cancelled`, -32601 + log for the rest.
@@ -24,22 +25,26 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
   capture contains no incoming `approval`/`sudo` request, even after the agent
   reported `approvals.mode=manual`; it used textual "approve/cancel" instead.
   Server-side approval dispatch needs investigation before Phase 5 is complete.
-- **Phase 6: code complete on `phase-6-background`, CI green, NOT merged,
-  NOT tested on-device.** Based on the Phase 5 branch at the owner's request;
-  Phase 5 remains unmerged and its approval dispatch unverified.
+- **Phase 6: done, merged to `main`, CI green and verified on-device** (background
+  progress/reply-ready notification, tap-to-open, force-stop/reopen gap recovery).
+- **Phase 7: work started on `phase-7-ntfy`; not complete.** Added the
+  `hermes://session/<stored-id>` deep-link handler. The official ntfy Android app
+  supports private self-hosted subscriptions and notification click links, so the
+  app can avoid a second subscriber. Server prerequisites remain pending in
+  SERVER.md §§4–5; topic URL and auth are not in the repo.
 - **Design direction: decided, parked for Phase 8.** Canon world (Claude/Gemini/ChatGPT bar),
   one fixed Hermes blue, light leads. Contract: `.impeccable/surfaces/*chatscreen*.md`;
   comps: `.impeccable/mocks/decision/`; product truth: `PRODUCT.md`.
 - **Credentials:** server URL + username in `config/Defaults.kt`; password only in the
   `HERMES_PASSWORD` CI secret and baked into APKs — never in source. Rotate it per
   SERVER.md §5 when convenient (it appears in an old chat transcript).
-- **Next:** owner installs the Phase 6 build; checks foreground progress/reply-ready
-  notifications, notification tap opens the session, then force-stops mid-turn and
-  reopens for a complete transcript or explicit gap notice. Phase 5 approval
-  dispatch remains a separate server-side blocker; do not rely on the UI as a
-  write gate until an actual server approval request reaches it. §4 (ntfy +
-  messaging gateway) before Phase 7; the 4 CI signing secrets are still pending
-  (without them every build uses the runner's throwaway debug key).
+- **Next:** owner completes SERVER.md §4 (private ntfy + integration + messaging
+  gateway) and §5 (rotate the leaked password and update the `HERMES_PASSWORD`
+  CI secret). Then provide the ntfy HTTPS URL and topic setup (never the secret
+  in chat/source) so Phase 7 can finish. The 4 CI signing secrets are still
+  pending (without them every build uses the runner's throwaway debug key).
+  Approval dispatch remains a separate server-side blocker; do not rely on the
+  app as a write gate until an actual server approval request reaches it.
 - **Stack reality (see AGENTS.md):** compileSdk/targetSdk/minSdk 36 — Google has not
   published the android-37 platform. No Room (no KSP for Kotlin 2.4); OkHttp 4.12.0.
 
