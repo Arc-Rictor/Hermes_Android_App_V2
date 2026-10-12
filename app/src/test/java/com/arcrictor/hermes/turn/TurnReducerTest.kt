@@ -52,7 +52,7 @@ class TurnReducerTest {
         assertEquals(TurnActivity.Responding, seen[7])
         assertEquals(TurnActivity.Idle, seen[9])
 
-        assertEquals("Let me check the logswhile that runs", state.thinking)
+        assertEquals("Let me check the logs while that runs", state.thinking)
         assertEquals("Found 3 files.", state.reply)
         assertEquals(1, state.tools.size)
         assertEquals("terminal", state.tools[0].name)
