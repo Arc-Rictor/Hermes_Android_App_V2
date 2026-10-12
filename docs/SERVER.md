@@ -25,20 +25,26 @@ nothing on the public interface can reach it even before the firewall. Traefik (
 `tailscale0` interface. Plain-HTTP login is therefore tailnet-only. Re-check after any
 networking change with `ss -tln | grep 9119` on the VPS.
 
-## 4. Push notifications (before Phase 7)
+## 4. Push notifications ✅ DONE 2026-10-12
 
-- Self-host ntfy on the tailnet (private, credentialed) and enable Hermes' ntfy
-  integration so the agent/cron can message the owner.
-- Start the messaging gateway (`gateway_state` is currently `stopped`) — ntfy delivery
-  and cron runs go through it, not the dashboard.
+- ntfy 2.30.0 is installed as a system service at
+  `https://jarvis-vps.tail0b8136.ts.net:2586`, bound only to `100.123.89.114`.
+  It uses a Tailscale HTTPS certificate; a systemd timer renews it before expiry.
+- Access control defaults to `deny-all`. The `hermes-gateway` account has read/write
+  access to the private topic; `hermes-phone` is read-only. Credentials are in the
+  server's `/home/jarvis/.hermes/.env` and the owner's local system keyring, never here.
+- Hermes ntfy is configured as the default profile's home channel. The persistent
+  `hermes-gateway` user service is active (systemd linger enabled).
+- Anonymous read was verified as 403, phone read as 200, phone publish as 403, and
+  gateway read as 200. The phone app still needs to be subscribed and tested.
 
-## 5. Password hygiene
+## 5. Password hygiene ✅ DONE 2026-10-12
 
-The dashboard password was shared in a chat transcript. Rotate it once the app's login
-works. Prefer storing `dashboard.basic_auth.password_hash` over a plaintext `password`
-(the basic plugin's `hash_password()` produces it). The password is stored nowhere in this
-repo (and must never be). The app keeps working across a password change — tokens stay
-valid until they expire or the secret changes.
+The dashboard password was rotated after the app's login was working. The server now uses
+`dashboard.basic_auth.password_hash`; the plaintext password entry was removed from `.env`
+and the local config backups. The `HERMES_PASSWORD` GitHub Actions secret was updated to
+the same new password; it is not stored in this repo. Existing app tokens remain valid
+across the password change. Future CI APKs carry the rotated fallback password.
 
 **Lost phone / revoke access:** tokens are stateless and refresh tokens roll forward
 indefinitely (logout revokes nothing server-side). Changing the password does **not**

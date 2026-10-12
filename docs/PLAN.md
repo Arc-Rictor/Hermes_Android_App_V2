@@ -27,22 +27,25 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
   Server-side approval dispatch needs investigation before Phase 5 is complete.
 - **Phase 6: done, merged to `main`, CI green and verified on-device** (background
   progress/reply-ready notification, tap-to-open, force-stop/reopen gap recovery).
-- **Phase 7: work started on `phase-7-ntfy`; not complete.** Added the
+- **Phase 7: work in progress on `phase-7-ntfy`; not complete.** Added the
   `hermes://session/<stored-id>` deep-link handler. The official ntfy Android app
   supports private self-hosted subscriptions and notification click links, so the
-  app can avoid a second subscriber. Server prerequisites remain pending in
-  SERVER.md §§4–5; topic URL and auth are not in the repo.
+  app can avoid a second subscriber. SERVER.md §§4–5 are configured; credentials
+  are in the server `.env` and local system keyring, not this repo. End-to-end
+  phone test remains. The installed Hermes ntfy adapter currently does not publish
+  a `Click: hermes://session/<stored-id>` header; the publisher needs to attach a
+  durable stored-session id before Phase 7's deep-link DoD can pass.
 - **Design direction: decided, parked for Phase 8.** Canon world (Claude/Gemini/ChatGPT bar),
   one fixed Hermes blue, light leads. Contract: `.impeccable/surfaces/*chatscreen*.md`;
   comps: `.impeccable/mocks/decision/`; product truth: `PRODUCT.md`.
-- **Credentials:** server URL + username in `config/Defaults.kt`; password only in the
-  `HERMES_PASSWORD` CI secret and baked into APKs — never in source. Rotate it per
-  SERVER.md §5 when convenient (it appears in an old chat transcript).
-- **Next:** owner completes SERVER.md §4 (private ntfy + integration + messaging
-  gateway) and §5 (rotate the leaked password and update the `HERMES_PASSWORD`
-  CI secret). Then provide the ntfy HTTPS URL and topic setup (never the secret
-  in chat/source) so Phase 7 can finish. The 4 CI signing secrets are still
-  pending (without them every build uses the runner's throwaway debug key).
+- **Credentials:** server URL + username in `config/Defaults.kt`; rotated password only in
+  the `HERMES_PASSWORD` CI secret and baked into future APKs — never in source. The
+  ntfy phone credential is in the local system keyring (retrieve locally; never paste here).
+- **Next:** owner subscribes the official ntfy app to the configured private server/topic
+  using the phone credential from the system keyring. Then implement the publisher Click
+  link with a stored session id, run the end-to-end notification test, and merge Phase 7.
+  The 4 CI signing secrets are still pending (without them every build uses the runner's
+  throwaway debug key).
   Approval dispatch remains a separate server-side blocker; do not rely on the
   app as a write gate until an actual server approval request reaches it.
 - **Stack reality (see AGENTS.md):** compileSdk/targetSdk/minSdk 36 — Google has not
@@ -162,7 +165,7 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
   - [ ] Leave app mid-turn → notification shows progress; return → live state.
   - [ ] Kill app mid-turn → reopen → complete transcript or explicit gap notice.
 
-## Phase 7 — Push via ntfy (needs SERVER.md items 4–5 done first)
+## Phase 7 — Push via ntfy (SERVER.md items 4–5 done)
 
 - Tasks: ntfy subscription config (private server, topic, credential); notification →
   `hermes://session/<stored-id>` deep link opening the session; battery-friendly
