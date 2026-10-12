@@ -46,7 +46,11 @@ class TurnSession(
         private set
 
     private val _state = MutableStateFlow(
-        TurnReducer.forSnapshot(snapshot.inflight, snapshot.open_requests.size, nowMs()),
+        TurnReducer.forSnapshot(snapshot.inflight, snapshot.open_requests.size, nowMs()).let {
+            if (snapshot.inflight?.streaming == true) {
+                it.copy(gapNotice = "Reconnected — earlier live steps not shown.")
+            } else it
+        },
     )
     val state: StateFlow<TurnState> = _state
 
@@ -286,11 +290,14 @@ class TurnSession(
             val snap = try {
                 api.activate(runtimeId)
             } catch (e: RpcException) {
-                if (e.code == 4001L || e.code == 4007L) {
-                    resumeFallback(wasAlive, "session gone ($e)")
-                    return true
+                when (Recovery.decide(activateErrorCode = e.code)) {
+                    is Recovery.Plan.Resume -> {
+                        resumeFallback(wasAlive, "session gone ($e)")
+                        return true
+                    }
+                    Recovery.Plan.Retry -> return false
+                    else -> return false
                 }
-                return false
             } catch (_: Exception) {
                 return false
             }
@@ -302,9 +309,18 @@ class TurnSession(
             } catch (_: Exception) {
                 return false
             }
-            if (since.truncated) {
-                resumeFallback(wasAlive, "replay truncated at ${since.latest_seq}")
-                return true
+            val plan = Recovery.decide(
+                truncated = since.truncated,
+                epochChanged = since.epoch != adopted,
+            )
+            when (plan) {
+                is Recovery.Plan.Resume -> {
+                    resumeFallback(wasAlive, "${plan.reason} at ${since.latest_seq}")
+                    return true
+                }
+                Recovery.Plan.ReplayFromZero -> watermark = 0
+                Recovery.Plan.Replay -> Unit
+                Recovery.Plan.Retry -> return false
             }
             serverRequests.rehydrate(since.open_requests)
             val replayed = Replay.select(since.parsedEvents(), watermark, since.epoch, adopted)

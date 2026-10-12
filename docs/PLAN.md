@@ -4,7 +4,7 @@ Work phases in order. Each phase lists tasks, files, and a Definition of Done.
 DoD is checked against CI (`lintDebug` + `testDebugUnitTest` green) plus the boxes below.
 Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
 
-## Session status (2026-10-12 — session closing, work paused here)
+## Session status (2026-10-12)
 
 - **Phase 1: done, merged to `main`.** Verified on-device (login → READY, 14 server-request
   types, heartbeat). APKs named `hermes-debug-build-<run number>`.
@@ -20,18 +20,23 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
   clarify (options + free text, one submit), masked sudo/secret/vault inputs,
   snapshot rehydration (`open_requests` + `pending_approval` via `approval.respond`),
   expiry via `request.cancel`/`approval.cancelled`, -32601 + log for the rest.
+  **Approval DoD blocked:** build 47 advertised 14 request types, but the exported
+  capture contains no incoming `approval`/`sudo` request, even after the agent
+  reported `approvals.mode=manual`; it used textual "approve/cancel" instead.
+  Server-side approval dispatch needs investigation before Phase 5 is complete.
+- **Phase 6: code in progress on `phase-6-background`, based on the Phase 5
+  branch at the owner's request; Phase 5 remains unmerged and unverified.**
 - **Design direction: decided, parked for Phase 8.** Canon world (Claude/Gemini/ChatGPT bar),
   one fixed Hermes blue, light leads. Contract: `.impeccable/surfaces/*chatscreen*.md`;
   comps: `.impeccable/mocks/decision/`; product truth: `PRODUCT.md`.
 - **Credentials:** server URL + username in `config/Defaults.kt`; password only in the
   `HERMES_PASSWORD` CI secret and baked into APKs — never in source. Rotate it per
   SERVER.md §5 when convenient (it appears in an old chat transcript).
-- **Next:** owner installs latest `phase-5-approvals` build and checks the Phase 5
-  DoD below (approval `once` continues the turn, clarify submit, secret prompt)
-  — then merge `phase-5-approvals` → `main` and start Phase 6 (background service
-  + kill recovery). §4 (ntfy + messaging gateway) before Phase 7; the 4 CI signing
-  secrets are still pending (without them every build uses the runner's throwaway
-  debug key).
+- **Next:** owner installs the Phase 6 build and checks the Phase 6 DoD below.
+  Phase 5 approval dispatch remains a separate server-side blocker; do not rely on
+  the UI as a write gate until an actual server approval request reaches it. §4
+  (ntfy + messaging gateway) before Phase 7; the 4 CI signing secrets are still
+  pending (without them every build uses the runner's throwaway debug key).
 - **Stack reality (see AGENTS.md):** compileSdk/targetSdk/minSdk 36 — Google has not
   published the android-37 platform. No Room (no KSP for Kotlin 2.4); OkHttp 4.12.0.
 

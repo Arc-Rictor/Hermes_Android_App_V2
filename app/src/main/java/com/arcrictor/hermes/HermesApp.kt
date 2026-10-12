@@ -17,6 +17,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -71,7 +73,25 @@ class HermesApp : Application() {
         }.also { turnSessions[storedId] = it }
     }
 
+    fun turnSession(storedId: String): TurnSession? =
+        turnSessions[storedId] ?: turnSessions.values.firstOrNull { it.storedId == storedId }
+
+    fun backgroundTurnSession(): TurnSession? =
+        turnSessions.values.firstOrNull { it.state.value.turnAlive }
+
+    /** Keep collecting a running turn after the chat screen is left. */
     fun releaseTurnSession(session: TurnSession) {
+        if (!session.state.value.turnAlive) {
+            forgetTurnSession(session)
+            return
+        }
+        appScope.launch {
+            session.state.first { !it.turnAlive }
+            forgetTurnSession(session)
+        }
+    }
+
+    fun forgetTurnSession(session: TurnSession) {
         turnSessions.entries.removeIf { it.value === session }
         session.close()
     }
