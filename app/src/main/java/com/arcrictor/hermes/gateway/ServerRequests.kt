@@ -69,7 +69,7 @@ data class SecretCard(
 ) : RequestCard
 
 /** Open cards for one session. All methods are plain (non-suspend) and JVM-tested. */
-class ServerRequestStore {    private val _cards = MutableStateFlow<List<RequestCard>>(emptyList())
+class ServerRequests {    private val _cards = MutableStateFlow<List<RequestCard>>(emptyList())
     val cards: StateFlow<List<RequestCard>> = _cards
 
     /** Live frame or `open_requests` entry. Same ids as live frames: dedupe by id. */

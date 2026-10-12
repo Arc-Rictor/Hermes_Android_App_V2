@@ -61,7 +61,7 @@ class TurnSession(
     val recovering: StateFlow<Boolean> = _recovering
 
     /** Open approval/question/secret cards. The active count mirrors into TurnState. */
-    val serverRequests = ServerRequestStore()
+    val serverRequests = ServerRequests()
     val cards: StateFlow<List<RequestCard>> = serverRequests.cards
 
     private var watermark = 0L

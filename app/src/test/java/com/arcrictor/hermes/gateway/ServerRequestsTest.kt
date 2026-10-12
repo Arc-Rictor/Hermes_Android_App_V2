@@ -36,7 +36,7 @@ class ServerRequestsTest {
     }
 
     @Test fun `cancel by id withdraws only the matching card`() {
-        val store = ServerRequestStore()
+        val store = ServerRequests()
         store.addLive("srq-a", "approval", params("""{"request_id":"ra","command":"one"}"""))
         store.addLive("srq-b", "approval", params("""{"request_id":"rb","command":"two"}"""))
         store.expireById("srq-a", "timeout")
@@ -48,7 +48,7 @@ class ServerRequestsTest {
     }
 
     @Test fun `approval cancelled withdraws by request id`() {
-        val store = ServerRequestStore()
+        val store = ServerRequests()
         store.addLive("srq-a", "approval", params("""{"request_id":"ra"}"""))
         store.addLive("srq-b", "clarify", params("""{"questions":[{"qid":"q","question":"?"}]}"""))
         store.expireByRequestIds(listOf("ra"), "superseded")
@@ -57,7 +57,7 @@ class ServerRequestsTest {
     }
 
     @Test fun `rehydrate dedupes by id, answering twice stays harmless`() {
-        val store = ServerRequestStore()
+        val store = ServerRequests()
         val p = params("""{"request_id":"ra","command":"one"}""")
         val first = store.addLive("srq-a", "approval", p)!!
         val second = store.addLive("srq-a", "approval", p)!!
