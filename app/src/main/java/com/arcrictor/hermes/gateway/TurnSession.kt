@@ -1,9 +1,11 @@
 package com.arcrictor.hermes.gateway
 
+import com.arcrictor.hermes.media.AttachmentPlan
 import com.arcrictor.hermes.turn.GatewayEvent
 import com.arcrictor.hermes.turn.TurnReducer
 import com.arcrictor.hermes.turn.TurnState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -12,6 +14,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.File
 
 /**
  * One open chat session: live [TurnState], the growing transcript tail, and the
@@ -88,12 +93,34 @@ class TurnSession(
         _history.value = Transcript.project(messages)
     }
 
-    /** Send text; labels the bubble when the server queues/steers/redirects it. */
-    suspend fun send(text: String) {
+    /**
+     * Send text with staged attachments. Order per PROTOCOL.md §6: images/PDFs,
+     * then files (whose `ref_text` joins the message), then submit. Any attach
+     * failure aborts before submit; the draft is kept by the caller.
+     */
+    suspend fun send(text: String, attachments: List<OutgoingAttachment> = emptyList()) {
         ensureConnected()
-        val status = api.submit(runtimeId, text)
-        pendingUserText = text
-        _extras.update { it + UiMessage.User(text, emptyList(), emptyList(), submitLabel(status)) }
+        val (media, files) = attachments.partition { it.kind != AttachKind.FILE }
+        val imageRefs = mutableListOf<ImageRef>()
+        val fileRefs = mutableListOf<FileRef>()
+        for (a in media) {
+            val b64 = encode(a.file)
+            when (a.kind) {
+                AttachKind.IMAGE -> api.attachImage(runtimeId, b64, a.name)
+                    .takeIf { it.isNotBlank() }?.let { imageRefs.add(ImageRef(it)) }
+                AttachKind.PDF -> log(api.attachPdf(runtimeId, b64, a.name))
+                AttachKind.FILE -> error("unreachable")
+            }
+        }
+        var fullText = text
+        for (a in files) {
+            val attached = api.attachFile(runtimeId, encode(a.file), a.name)
+            fullText = AttachmentPlan.appendRefText(fullText, attached.refText)
+            fileRefs.add(FileRef(attached.refText))
+        }
+        val status = api.submit(runtimeId, fullText)
+        pendingUserText = fullText
+        _extras.update { it + UiMessage.User(text, imageRefs, fileRefs, submitLabel(status)) }
     }
 
     /** Stop the running turn. Best-effort RPC; the local state stops regardless. */
@@ -259,5 +286,28 @@ class TurnSession(
         else -> null
     }
 
+    private suspend fun encode(file: File): String = withContext(Dispatchers.IO) {
+        val out = ByteArrayOutputStream()
+        file.inputStream().use { ins ->
+            val buf = ByteArray(64 * 1024)
+            var total = 0L
+            while (true) {
+                val n = ins.read(buf)
+                if (n < 0) break
+                total += n
+                if (total > AttachmentPlan.MAX_RAW_BYTES) {
+                    throw IllegalArgumentException("File too large to send (max 11 MB)")
+                }
+                out.write(buf, 0, n)
+            }
+        }
+        android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+    }
+
     private fun nowMs(): Long = System.currentTimeMillis()
 }
+
+/** Staged local file for the send flow. */
+enum class AttachKind { IMAGE, PDF, FILE }
+
+data class OutgoingAttachment(val kind: AttachKind, val file: File, val name: String)

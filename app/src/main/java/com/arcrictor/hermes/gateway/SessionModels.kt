@@ -71,6 +71,10 @@ data class EventsSince(
     fun parsedEvents(): List<GatewayFrame.Event> = events.mapNotNull(Replay::itemToEvent)
 }
 
+/** `file.attach` result: nothing queues — the client appends [refText] to the message. */
+@Serializable
+data class FileAttach(val path: String = "", val refText: String = "")
+
 /** Result of `session.create` / `session.resume` / `session.activate`. */
 @Serializable
 data class LiveSessionSnapshot(
