@@ -57,6 +57,8 @@ class GatewayClient(
     sealed interface HandlerAnswer {
         data class Result(val result: JsonObject) : HandlerAnswer
         data class Error(val code: Long, val message: String) : HandlerAnswer
+        /** The UI answers later via [answerServerRequest] (approval/clarify cards). */
+        data object Deferred : HandlerAnswer
     }
 
     data class ReadyInfo(
@@ -165,6 +167,19 @@ class GatewayClient(
         }
     }
 
+    /**
+     * Answer a server→client request the UI handled later (approval/clarify
+     * cards). Responses carry the server's id, not an `a<n>` id, and expect
+     * no reply — fire and forget.
+     */
+    fun answerServerRequest(id: String, result: JsonObject) {
+        val ws = socket
+        if (ws == null || _connState.value != ConnState.READY) {
+            throw RpcException(-1, "not connected")
+        }
+        if (!ws.send(JsonRpc.answer(id, result))) throw RpcException(-1, "send queue full")
+    }
+
     fun disconnect() {
         generation++
         heartbeatJob?.cancel()
@@ -253,7 +268,9 @@ class GatewayClient(
                         val payload = when (answer) {
                             is HandlerAnswer.Result -> JsonRpc.answer(frame.id, answer.result)
                             is HandlerAnswer.Error -> JsonRpc.errorAnswer(frame.id, answer.code, answer.message)
+                            HandlerAnswer.Deferred -> null
                         }
+                        if (payload == null) return@launch
                         try {
                             ws?.send(payload)
                         } catch (_: Exception) {

@@ -4,7 +4,7 @@ Work phases in order. Each phase lists tasks, files, and a Definition of Done.
 DoD is checked against CI (`lintDebug` + `testDebugUnitTest` green) plus the boxes below.
 Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
 
-## Session status (2026-10-12 — session closing, work paused here)
+## Session status (2026-10-12)
 
 - **Phase 1: done, merged to `main`.** Verified on-device (login → READY, 14 server-request
   types, heartbeat). APKs named `hermes-debug-build-<run number>`.
@@ -12,24 +12,32 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
   rotate mid-session, readable UI after the Surface/insets fix).
 - **Phase 3: done, merged to `main`.** Verified on-device (hello turn, tool turn,
   Stop, send-while-busy labels, airplane-mode reconnect, rotation).
-- **Phase 4: code complete on branch `phase-4-attachments`, CI green, NOT merged,
-  NOT tested on-device.** Attachments: CameraX 1.6.2 capture sheet (pinned: needs
-  exactly compileSdk 36), gallery multi-pick, generic file picker, share-receive
-  (text/images/files → session picker → pre-filled composer), downscale ≤1568 px
-  JPEG q80 with EXIF rotation, always-`.jpg` names, 11 MB refusal, attach-then-submit
-  ordering with abort-on-failure. V1 port: downscale loop + filesDir staging from
-  `data/Attachments.kt` only, per AGENTS.md rule 10.
+- **Phase 4: done, merged to `main`** (plus the open-new-session-directly fix and the
+  adjustResize keyboard fix). Verified on-device (camera/gallery/PDF/zip, 11 MB
+  refusal, share-receive, new-chat creation).
+- **Phase 5: code complete on branch `phase-5-approvals`, CI green, NOT merged,
+  NOT tested on-device.** Approvals (offered choices only, `once` default path),
+  clarify (options + free text, one submit), masked sudo/secret/vault inputs,
+  snapshot rehydration (`open_requests` + `pending_approval` via `approval.respond`),
+  expiry via `request.cancel`/`approval.cancelled`, -32601 + log for the rest.
+  **Approval DoD blocked:** build 47 advertised 14 request types, but the exported
+  capture contains no incoming `approval`/`sudo` request, even after the agent
+  reported `approvals.mode=manual`; it used textual "approve/cancel" instead.
+  Server-side approval dispatch needs investigation before Phase 5 is complete.
+- **Phase 6: code complete on `phase-6-background`, CI green, NOT merged,
+  NOT tested on-device.** Based on the Phase 5 branch at the owner's request;
+  Phase 5 remains unmerged and its approval dispatch unverified.
 - **Design direction: decided, parked for Phase 8.** Canon world (Claude/Gemini/ChatGPT bar),
   one fixed Hermes blue, light leads. Contract: `.impeccable/surfaces/*chatscreen*.md`;
   comps: `.impeccable/mocks/decision/`; product truth: `PRODUCT.md`.
 - **Credentials:** server URL + username in `config/Defaults.kt`; password only in the
   `HERMES_PASSWORD` CI secret and baked into APKs — never in source. Rotate it per
   SERVER.md §5 when convenient (it appears in an old chat transcript).
-- **Next:** owner installs latest `phase-4-attachments` build and checks the Phase 4
-  DoD below (camera photo, gallery image, PDF, .zip, 20 MB refusal, share-receive)
-  — then merge `phase-4-attachments` → `main` and start Phase 5 (approvals).
-  SERVER.md §2 (poppler for PDFs) is due before Phase 4's PDF check passes — if the
-  server reports 5028, that is a server prerequisite, not an app bug. §4 (ntfy +
+- **Next:** owner installs the Phase 6 build; checks foreground progress/reply-ready
+  notifications, notification tap opens the session, then force-stops mid-turn and
+  reopens for a complete transcript or explicit gap notice. Phase 5 approval
+  dispatch remains a separate server-side blocker; do not rely on the UI as a
+  write gate until an actual server approval request reaches it. §4 (ntfy +
   messaging gateway) before Phase 7; the 4 CI signing secrets are still pending
   (without them every build uses the runner's throwaway debug key).
 - **Stack reality (see AGENTS.md):** compileSdk/targetSdk/minSdk 36 — Google has not

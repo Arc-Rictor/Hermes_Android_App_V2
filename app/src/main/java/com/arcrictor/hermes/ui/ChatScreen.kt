@@ -39,8 +39,12 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import com.arcrictor.hermes.gateway.ApprovalCard
 import com.arcrictor.hermes.gateway.AttachKind
+import com.arcrictor.hermes.gateway.ClarifyCard
 import com.arcrictor.hermes.gateway.OutgoingAttachment
+import com.arcrictor.hermes.gateway.RequestCard
+import com.arcrictor.hermes.gateway.SecretCard
 import com.arcrictor.hermes.gateway.UiMessage
 import com.arcrictor.hermes.media.Attachments
 import com.arcrictor.hermes.media.CameraSheet
@@ -72,11 +76,15 @@ fun ChatScreen(
     sentCount: Int,
     initialDraft: String = "",
     initialShared: List<SharedFile> = emptyList(),
+    cards: List<RequestCard> = emptyList(),
     images: ServerImages,
     onBack: () -> Unit,
     onSend: (String, List<OutgoingAttachment>) -> Unit,
     onStop: () -> Unit,
     onConsumedShared: () -> Unit = {},
+    onAnswerApproval: (ApprovalCard, String) -> Unit = { _, _ -> },
+    onAnswerClarify: (ClarifyCard, Map<String, String?>) -> Unit = { _, _ -> },
+    onAnswerSecret: (SecretCard, String) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -220,6 +228,13 @@ fun ChatScreen(
             }
         }
         PendingRow(pending) { pending = pending - it }
+        cards.forEach { card ->
+            when (card) {
+                is ApprovalCard -> ApprovalCard(card) { onAnswerApproval(card, it) }
+                is ClarifyCard -> ClarifyCard(card) { onAnswerClarify(card, it) }
+                is SecretCard -> SecretCardView(card) { onAnswerSecret(card, it) }
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth().padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,

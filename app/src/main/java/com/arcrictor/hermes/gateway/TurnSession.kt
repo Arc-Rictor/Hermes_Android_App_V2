@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import java.io.ByteArrayOutputStream
 import java.io.File
 
@@ -44,7 +46,11 @@ class TurnSession(
         private set
 
     private val _state = MutableStateFlow(
-        TurnReducer.forSnapshot(snapshot.inflight, snapshot.open_requests.size, nowMs()),
+        TurnReducer.forSnapshot(snapshot.inflight, snapshot.open_requests.size, nowMs()).let {
+            if (snapshot.inflight?.streaming == true) {
+                it.copy(gapNotice = "Reconnected — earlier live steps not shown.")
+            } else it
+        },
     )
     val state: StateFlow<TurnState> = _state
 
@@ -58,6 +64,10 @@ class TurnSession(
     private val _recovering = MutableStateFlow(false)
     val recovering: StateFlow<Boolean> = _recovering
 
+    /** Open approval/question/secret cards. The active count mirrors into TurnState. */
+    val serverRequests = ServerRequests()
+    val cards: StateFlow<List<RequestCard>> = serverRequests.cards
+
     private var watermark = 0L
     private var pendingUserText: String? = snapshot.inflight?.user?.takeIf { it.isNotBlank() }
 
@@ -66,6 +76,13 @@ class TurnSession(
     private val held = mutableListOf<GatewayFrame.Event>()
 
     init {
+        serverRequests.rehydrate(snapshot.open_requests)
+        snapshot.pending_approval?.let { serverRequests.addPendingApproval(it) }
+        scope.launch {
+            serverRequests.cards.collect { cards ->
+                _state.update { it.copy(openRequestCount = cards.count { c -> !c.expired }) }
+            }
+        }
         scope.launch {
             gateway.frames.collect { frame ->
                 if (frame !is GatewayFrame.Event || frame.sessionId != runtimeId) return@collect
@@ -134,10 +151,61 @@ class TurnSession(
         _state.update { TurnReducer.reduce(it, GatewayEvent.Interrupted, nowMs()) }
     }
 
+    /** Route a server→client request: known cards wait for the user, the rest get -32601. */
+    fun handleServerRequest(req: GatewayFrame.ServerRequest): GatewayClient.HandlerAnswer {
+        val card = ServerRequests.parseCard(req.id, req.method, req.params)
+        if (card == null) {
+            log("no handler for server request: ${req.method}")
+            return GatewayClient.HandlerAnswer.Error(-32601, "no handler for server request: ${req.method}")
+        }
+        serverRequests.addLive(req.id, req.method, req.params)
+        return GatewayClient.HandlerAnswer.Deferred
+    }
+
+    suspend fun answerApproval(card: ApprovalCard, choice: String) {
+        ensureConnected()
+        if (card.id.startsWith("pending:")) {
+            api.approvalRespond(runtimeId, choice, card.requestId)
+        } else {
+            gateway.answerServerRequest(card.id, ServerRequests.approvalResult(choice))
+        }
+        serverRequests.markAnswered(card.id)
+    }
+
+    suspend fun answerClarify(card: ClarifyCard, answers: Map<String, String?>) {
+        ensureConnected()
+        if (card.id.startsWith("pending:")) {
+            throw RpcException(-1, "can't answer this question on this socket")
+        }
+        gateway.answerServerRequest(card.id, ServerRequests.clarifyResult(answers))
+        serverRequests.markAnswered(card.id)
+    }
+
+    suspend fun answerSecret(card: SecretCard, value: String) {
+        ensureConnected()
+        if (card.id.startsWith("pending:")) {
+            throw RpcException(-1, "can't answer this prompt on this socket")
+        }
+        gateway.answerServerRequest(card.id, ServerRequests.secretResult(value))
+        serverRequests.markAnswered(card.id)
+    }
+
     private fun apply(frame: GatewayFrame.Event) {
         if (frame.type == "session.reclaimed") {
             log("session.reclaimed — resuming")
             scope.launch { recover() }
+            return
+        }
+        if (frame.type == "request.cancel") {
+            val id = frame.payload.string("id")
+            if (id != null) serverRequests.expireById(id, frame.payload.string("reason"))
+            return
+        }
+        if (frame.type == "approval.cancelled") {
+            val ids = (frame.payload["request_ids"] as? JsonArray)?.mapNotNull {
+                (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content
+            }.orEmpty()
+            serverRequests.expireByRequestIds(ids, frame.payload.string("reason"))
             return
         }
         val adopted = gateway.readyInfo?.replayEpoch ?: ""
@@ -222,26 +290,39 @@ class TurnSession(
             val snap = try {
                 api.activate(runtimeId)
             } catch (e: RpcException) {
-                if (e.code == 4001L || e.code == 4007L) {
-                    resumeFallback(wasAlive, "session gone ($e)")
-                    return true
+                when (Recovery.decide(activateErrorCode = e.code)) {
+                    is Recovery.Plan.Resume -> {
+                        resumeFallback(wasAlive, "session gone ($e)")
+                        return true
+                    }
+                    Recovery.Plan.Retry -> return false
+                    else -> return false
                 }
-                return false
             } catch (_: Exception) {
                 return false
             }
             storedId = snap.storedId().also { if (it != storedId) log("stored id rotated") }
-            _state.update { it.copy(openRequestCount = snap.open_requests.size) }
+            serverRequests.rehydrate(snap.open_requests)
+            snap.pending_approval?.let { serverRequests.addPendingApproval(it) }
             val since = try {
                 api.eventsSince(runtimeId, watermark)
             } catch (_: Exception) {
                 return false
             }
-            if (since.truncated) {
-                resumeFallback(wasAlive, "replay truncated at ${since.latest_seq}")
-                return true
+            val plan = Recovery.decide(
+                truncated = since.truncated,
+                epochChanged = since.epoch != adopted,
+            )
+            when (plan) {
+                is Recovery.Plan.Resume -> {
+                    resumeFallback(wasAlive, "${plan.reason} at ${since.latest_seq}")
+                    return true
+                }
+                Recovery.Plan.ReplayFromZero -> watermark = 0
+                Recovery.Plan.Replay -> Unit
+                Recovery.Plan.Retry -> return false
             }
-            _state.update { it.copy(openRequestCount = since.open_requests.size) }
+            serverRequests.rehydrate(since.open_requests)
             val replayed = Replay.select(since.parsedEvents(), watermark, since.epoch, adopted)
             val heldNow = synchronized(held) { held.toList().also { held.clear() } }
             val ordered = Replay.select(replayed + heldNow, watermark, since.epoch, adopted)
@@ -274,6 +355,8 @@ class TurnSession(
                     if (wasAlive) it.copy(gapNotice = "Reconnected — earlier live steps not shown.")
                     else it
                 }
+            serverRequests.rehydrate(snap.open_requests)
+            snap.pending_approval?.let { serverRequests.addPendingApproval(it) }
         } catch (e: Exception) {
             log("resume fallback failed: ${e.message}")
         }

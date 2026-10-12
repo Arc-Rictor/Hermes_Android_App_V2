@@ -1,7 +1,9 @@
 package com.arcrictor.hermes
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,7 +12,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +28,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arcrictor.hermes.config.Defaults
 import com.arcrictor.hermes.gateway.GatewayClient
@@ -42,6 +46,7 @@ import com.arcrictor.hermes.ui.LoginScreen
 import com.arcrictor.hermes.ui.LoginUiState
 import com.arcrictor.hermes.ui.SessionsScreen
 import com.arcrictor.hermes.ui.SharedFile
+import com.arcrictor.hermes.work.TurnService
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -63,9 +68,6 @@ private fun Exception.userMessage(prefix: String) = (this as? LoginError)?.messa
 /** Notices for a resume snapshot (snapshot cards arrive in Phase 5). */
 private fun chatNotice(snap: LiveSessionSnapshot): String? {
     val notices = buildList {
-        if (snap.open_requests.isNotEmpty()) {
-            add("${snap.open_requests.size} request(s) from the agent still need an answer (approvals arrive in Phase 5).")
-        }
         if (snap.queued != null) add("A queued message is waiting.")
     }
     return notices.takeIf { it.isNotEmpty() }?.joinToString("\n")
@@ -79,6 +81,11 @@ class MainActivity : ComponentActivity() {
     /** Content shared from another app, awaiting a session pick (R4.3). */
     private var sharedDraft: String? by mutableStateOf(null)
     private var sharedUris: List<SharedFile> by mutableStateOf(emptyList())
+    private var notificationSessionId: String? by mutableStateOf(null)
+
+    private fun routeNotification(intent: Intent?) {
+        notificationSessionId = intent?.getStringExtra(TurnService.EXTRA_STORED_ID)
+    }
 
     private fun handleShared(intent: Intent?) {
         fun stashText(text: String?) {
@@ -108,6 +115,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         handleShared(intent)
+        routeNotification(intent)
         val app = application as HermesApp
         setContent {
             MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
@@ -142,6 +150,22 @@ class MainActivity : ComponentActivity() {
                         val lines by app.captureLog.lines.collectAsState()
                         val savedUser by app.tokenStore.savedUser.collectAsState(initial = null)
                         val hasSaved by app.tokenStore.tokens.collectAsState(initial = null)
+
+                        val notificationPermission = rememberLauncherForActivityResult(
+                            ActivityResultContracts.RequestPermission(),
+                        ) { granted ->
+                            if (!granted) app.captureLog.add("notification permission denied")
+                        }
+                        LaunchedEffect(Unit) {
+                            if (Build.VERSION.SDK_INT >= 33 &&
+                                ContextCompat.checkSelfPermission(
+                                    this@MainActivity,
+                                    android.Manifest.permission.POST_NOTIFICATIONS,
+                                ) != PackageManager.PERMISSION_GRANTED
+                            ) {
+                                notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        }
 
                         suspend fun refreshSessions(silent: Boolean = false) {
                             if (!silent) {
@@ -212,6 +236,15 @@ class MainActivity : ComponentActivity() {
                             } catch (e: Exception) {
                                 if (stillWanted()) sessionsError = e.userMessage("Couldn't open live session")
                             }
+                        }
+
+                        LaunchedEffect(authed, notificationSessionId, sessions) {
+                            val storedId = notificationSessionId ?: return@LaunchedEffect
+                            if (!authed) return@LaunchedEffect
+                            val row = sessions.firstOrNull { it.id == storedId }
+                                ?: SessionRow(id = storedId)
+                            notificationSessionId = null
+                            openSession(row)
                         }
 
                         /** [creds] = fresh password login; null = reuse saved tokens, falling back to the baked-in password. */
@@ -292,6 +325,7 @@ class MainActivity : ComponentActivity() {
                             val extras by o.session.extras.collectAsStateWithLifecycle()
                             val live by o.session.state.collectAsStateWithLifecycle()
                             val recovering by o.session.recovering.collectAsStateWithLifecycle()
+                            val cards by o.session.cards.collectAsStateWithLifecycle()
                             ChatScreen(
                                 title = o.title,
                                 history = history,
@@ -304,6 +338,7 @@ class MainActivity : ComponentActivity() {
                                 sentCount = sentCount,
                                 initialDraft = o.draft,
                                 initialShared = o.shared,
+                                cards = cards,
                                 images = app.serverImages,
                                 onBack = {
                                     openingId = null
@@ -337,6 +372,33 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onConsumedShared = { open = o.copy(shared = emptyList()) },
+                                onAnswerApproval = { card, choice ->
+                                    scope.launch {
+                                        try {
+                                            o.session.answerApproval(card, choice)
+                                        } catch (e: Exception) {
+                                            sendError = e.userMessage("Couldn't answer")
+                                        }
+                                    }
+                                },
+                                onAnswerClarify = { card, answers ->
+                                    scope.launch {
+                                        try {
+                                            o.session.answerClarify(card, answers)
+                                        } catch (e: Exception) {
+                                            sendError = e.userMessage("Couldn't answer")
+                                        }
+                                    }
+                                },
+                                onAnswerSecret = { card, value ->
+                                    scope.launch {
+                                        try {
+                                            o.session.answerSecret(card, value)
+                                        } catch (e: Exception) {
+                                            sendError = e.userMessage("Couldn't answer")
+                                        }
+                                    }
+                                },
                             )
                         } else when (screen) {
                             Screen.Sessions -> SessionsScreen(
@@ -430,11 +492,34 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleShared(intent)
+        routeNotification(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        TurnService.stop(this)
+    }
+
+    override fun onStop() {
+        if (!isChangingConfigurations) {
+            val app = application as HermesApp
+            app.backgroundTurnSession()?.let { session ->
+                try {
+                    TurnService.start(this, session.storedId)
+                } catch (e: Exception) {
+                    app.captureLog.add("foreground service start failed: ${e.message}")
+                }
+            }
+        }
+        super.onStop()
     }
 
     override fun onDestroy() {
         // Rotation recreates the activity: keep the app-scoped socket alive across it.
-        if (isFinishing && !isChangingConfigurations) (application as HermesApp).gateway.disconnect()
+        val app = application as HermesApp
+        if (isFinishing && !isChangingConfigurations && app.backgroundTurnSession() == null) {
+            app.gateway.disconnect()
+        }
         super.onDestroy()
     }
 }

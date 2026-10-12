@@ -10,12 +10,15 @@ import com.arcrictor.hermes.gateway.LiveSessionSnapshot
 import com.arcrictor.hermes.gateway.SessionsApi
 import com.arcrictor.hermes.gateway.TokenManager
 import com.arcrictor.hermes.gateway.TurnSession
+import com.arcrictor.hermes.gateway.string
 import com.arcrictor.hermes.media.ServerImages
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -58,12 +61,37 @@ class HermesApp : Application() {
         val existing = turnSessions[storedId]
         if (existing != null && existing.runtimeId == runtimeId) return existing
         existing?.close()
+        // Server→client requests route to the session whose runtime id they name.
+        // Unknown methods get -32601; known cards wait for the user (Phase 5).
+        gateway.serverRequestHandler = { req ->
+            val sid = req.params.string("session_id")
+            turnSessions.values.firstOrNull { it.runtimeId == sid }?.handleServerRequest(req)
+                ?: GatewayClient.HandlerAnswer.Error(-32601, "no handler for server request: ${req.method}")
+        }
         return TurnSession(gateway, sessionsApi, appScope, ::ensureConnected, storedId, runtimeId, snapshot) {
             captureLog.add(it)
         }.also { turnSessions[storedId] = it }
     }
 
+    fun turnSession(storedId: String): TurnSession? =
+        turnSessions[storedId] ?: turnSessions.values.firstOrNull { it.storedId == storedId }
+
+    fun backgroundTurnSession(): TurnSession? =
+        turnSessions.values.firstOrNull { it.state.value.turnAlive }
+
+    /** Keep collecting a running turn after the chat screen is left. */
     fun releaseTurnSession(session: TurnSession) {
+        if (!session.state.value.turnAlive) {
+            forgetTurnSession(session)
+            return
+        }
+        appScope.launch {
+            session.state.first { !it.turnAlive }
+            forgetTurnSession(session)
+        }
+    }
+
+    fun forgetTurnSession(session: TurnSession) {
         turnSessions.entries.removeIf { it.value === session }
         session.close()
     }
