@@ -18,6 +18,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0-phase1"
+        buildConfigField("String", "HERMES_PASSWORD", "\"$hermesPassword\"")
     }
 
     // Debug signing from CI secrets when present; otherwise the default debug key.
@@ -51,8 +52,18 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    // Owner password: local.properties `hermes.password` (gitignored) or env HERMES_PASSWORD
+    // (CI secret). Baked into the APK — never commit it to source. Empty = manual login.
+    val hermesPassword: String = run {
+        val fromFile = rootProject.file("local.properties").takeIf { it.isFile }
+            ?.let { java.util.Properties().apply { it.inputStream().use(::load) } }
+            ?.getProperty("hermes.password")
+        (fromFile ?: System.getenv("HERMES_PASSWORD") ?: "").replace("\\", "\\\\").replace("\"", "\\\"")
+    }
+
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {

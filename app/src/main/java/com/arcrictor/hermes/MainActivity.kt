@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import com.arcrictor.hermes.config.Defaults
 import com.arcrictor.hermes.gateway.AuthApi
 import com.arcrictor.hermes.gateway.GatewayFrame
 import com.arcrictor.hermes.gateway.LoginError
@@ -57,9 +58,10 @@ class MainActivity : ComponentActivity() {
                 val scope = rememberCoroutineScope()
                 var authed by rememberSaveable { mutableStateOf(false) }
                 var screen by remember { mutableStateOf<Screen>(Screen.Sessions) }
-                var baseUrl by rememberSaveable { mutableStateOf("http://100.123.89.114:9119") }
-                var username by rememberSaveable { mutableStateOf("") }
-                var password by rememberSaveable { mutableStateOf("") }
+                var baseUrl by rememberSaveable { mutableStateOf(Defaults.BASE_URL) }
+                var username by rememberSaveable { mutableStateOf(Defaults.USERNAME) }
+                var password by rememberSaveable { mutableStateOf(BuildConfig.HERMES_PASSWORD) }
+                var autoTried by rememberSaveable { mutableStateOf(false) }
                 var loginState by remember { mutableStateOf(LoginUiState()) }
                 var readySummary by remember { mutableStateOf<String?>(null) }
                 var sessions by remember { mutableStateOf<List<SessionRow>>(emptyList()) }
@@ -225,6 +227,11 @@ class MainActivity : ComponentActivity() {
                         if (b != null) baseUrl = b
                         val u = app.tokenStore.savedUser.first()
                         if (u != null && username.isEmpty()) username = u
+                        // Baked-in password: sign in silently on launch (once per process).
+                        if (!autoTried && password.isNotBlank() && username.isNotBlank()) {
+                            autoTried = true
+                            runLogin(mapOf("u" to username, "p" to password))
+                        }
                     }
                     LoginScreen(
                         baseUrl = baseUrl, username = username, password = password,
