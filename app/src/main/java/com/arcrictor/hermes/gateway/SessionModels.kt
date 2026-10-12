@@ -57,6 +57,20 @@ data class OpenRequestEntry(
     val params: JsonObject = JsonObject(emptyMap()),
 )
 
+/** Result of `session.events.since` (all keys REQ per PROTOCOL.md §5). */
+@Serializable
+data class EventsSince(
+    val events: List<JsonObject> = emptyList(),
+    val latest_seq: Long = 0,
+    val truncated: Boolean = false,
+    val count: Int = 0,
+    val epoch: String = "",
+    val open_requests: List<OpenRequestEntry> = emptyList(),
+) {
+    /** Event items, tolerating both envelope shapes (see Replay.itemToEvent). */
+    fun parsedEvents(): List<GatewayFrame.Event> = events.mapNotNull(Replay::itemToEvent)
+}
+
 /** Result of `session.create` / `session.resume` / `session.activate`. */
 @Serializable
 data class LiveSessionSnapshot(

@@ -8,8 +8,14 @@ import kotlinx.serialization.json.JsonPrimitive
  * are never sent; tool rows carry only name + context preview.
  */
 sealed interface UiMessage {
-    data class User(val text: String, val images: List<ImageRef>, val files: List<FileRef>) : UiMessage
-    data class Assistant(val text: String, val reasoning: String?) : UiMessage
+    /** [label] marks send-while-busy bubbles ("Queued"/"Steering"/"Redirected"). */
+    data class User(
+        val text: String,
+        val images: List<ImageRef>,
+        val files: List<FileRef>,
+        val label: String? = null,
+    ) : UiMessage
+    data class Assistant(val text: String, val reasoning: String?, val usage: String? = null) : UiMessage
     data class Tool(val name: String, val preview: String) : UiMessage
 }
 

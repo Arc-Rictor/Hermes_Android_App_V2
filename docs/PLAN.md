@@ -8,20 +8,28 @@ Protocol details live in `docs/PROTOCOL.md` — cited as §N below.
 
 - **Phase 1: done, merged to `main`.** Verified on-device (login → READY, 14 server-request
   types, heartbeat). APKs named `hermes-debug-build-<run number>`.
-- **Phase 2: code complete on branch `phase-2-sessions`, CI green (build 30), NOT merged,
-  NOT tested on-device.** Sessions list/create/rename/delete, transcript history with tool
-  rows, thinking expander, `@image:` thumbnails, JSON-file cache, auto-login on launch with
-  baked-in password (`HERMES_PASSWORD` CI secret set; password verified present in the APK).
+- **Phase 2: done, merged to `main`.** Verified on-device (auto-login, session open,
+  rotate mid-session, readable UI after the Surface/insets fix).
+- **Phase 3: code complete on branch `phase-3-live-chat`, CI green, NOT merged,
+  NOT tested on-device.** Live chat: TurnReducer + unit tests, prompt.submit with
+  queued/steering/redirected labels, Stop, §5 reconnect (activate → events.since →
+  held frames, resume fallback, 1 s→30 s backoff), Chat screen (activity header +
+  elapsed timer, thinking panel, tool timeline). HistoryScreen removed (ChatScreen
+  absorbs it); one extra shared file (`ui/MessageRows.kt`) to avoid duplicating
+  the transcript renderer.
 - **Design direction: decided, parked for Phase 8.** Canon world (Claude/Gemini/ChatGPT bar),
   one fixed Hermes blue, light leads. Contract: `.impeccable/surfaces/*chatscreen*.md`;
   comps: `.impeccable/mocks/decision/`; product truth: `PRODUCT.md`.
 - **Credentials:** server URL + username in `config/Defaults.kt`; password only in the
   `HERMES_PASSWORD` CI secret and baked into APKs — never in source. Rotate it per
   SERVER.md §5 when convenient (it appears in an old chat transcript).
-- **Next:** owner installs build 30, checks open-a-session + rotate-mid-session, then merge
-  `phase-2-sessions` → `main` and start Phase 3 (live chat). SERVER.md §2 (poppler for PDFs)
-  is due before Phase 4; §4 (ntfy + messaging gateway) before Phase 7; the 4 CI signing
-  secrets are still pending (without them every build uses the runner's throwaway debug key).
+- **Next:** owner installs latest `phase-3-live-chat` build, checks hello turn
+  (Working → Responding → Idle, streamed text), a tool-using turn (timeline +
+  thinking panel + usage), Stop mid-turn, and airplane-mode mid-turn reconnect
+  without duplicates — then merge `phase-3-live-chat` → `main` and start Phase 4
+  (attachments). SERVER.md §2 (poppler for PDFs) is due before Phase 4; §4 (ntfy +
+  messaging gateway) before Phase 7; the 4 CI signing secrets are still pending
+  (without them every build uses the runner's throwaway debug key).
 - **Stack reality (see AGENTS.md):** compileSdk/targetSdk/minSdk 36 — Google has not
   published the android-37 platform. No Room (no KSP for Kotlin 2.4); OkHttp 4.12.0.
 

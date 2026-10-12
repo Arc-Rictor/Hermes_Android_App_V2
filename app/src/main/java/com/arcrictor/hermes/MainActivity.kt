@@ -9,6 +9,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +26,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.arcrictor.hermes.config.Defaults
 import com.arcrictor.hermes.gateway.GatewayClient
 import com.arcrictor.hermes.gateway.GatewayFrame
@@ -32,10 +34,9 @@ import com.arcrictor.hermes.gateway.LiveSessionSnapshot
 import com.arcrictor.hermes.gateway.LoginError
 import com.arcrictor.hermes.gateway.RpcException
 import com.arcrictor.hermes.gateway.SessionRow
-import com.arcrictor.hermes.gateway.Transcript
-import com.arcrictor.hermes.gateway.UiMessage
+import com.arcrictor.hermes.gateway.TurnSession
+import com.arcrictor.hermes.ui.ChatScreen
 import com.arcrictor.hermes.ui.DiagnosticsScreen
-import com.arcrictor.hermes.ui.HistoryScreen
 import com.arcrictor.hermes.ui.LoginScreen
 import com.arcrictor.hermes.ui.LoginUiState
 import com.arcrictor.hermes.ui.SessionsScreen
@@ -46,37 +47,24 @@ import kotlinx.serialization.json.JsonPrimitive
 
 private enum class Screen { Sessions, Diagnostics }
 
-private data class OpenSession(
+private data class ChatOpen(
     val row: SessionRow,
-    val runtimeId: String,
     val title: String,
-    val messages: List<UiMessage>,
+    val session: TurnSession,
     val notice: String?,
 )
 
 private fun Exception.userMessage(prefix: String) = (this as? LoginError)?.message ?: "$prefix: $message"
 
-/** Transcript + notices for a resume snapshot (pure; no UI state). */
-private fun openSessionFrom(row: SessionRow, snap: LiveSessionSnapshot): OpenSession {
-    val title = (snap.info["title"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-        ?.takeIf { it.isNotBlank() } ?: row.title
+/** Notices for a resume snapshot (snapshot cards arrive in Phase 5). */
+private fun chatNotice(snap: LiveSessionSnapshot): String? {
     val notices = buildList {
         if (snap.open_requests.isNotEmpty()) {
             add("${snap.open_requests.size} request(s) from the agent still need an answer (approvals arrive in Phase 5).")
         }
         if (snap.queued != null) add("A queued message is waiting.")
-    }.toMutableList()
-    val liveTail = snap.inflight
-        ?.takeIf { it.assistant.isNotBlank() || it.error != null }
-        ?.let {
-            notices.add("Reconnected mid-turn — showing what streamed so far.")
-            listOf(UiMessage.Assistant(it.assistant.ifBlank { "(no reply yet)" }, null))
-        } ?: emptyList()
-    return OpenSession(
-        row, snap.session_id, title,
-        Transcript.project(snap.messages) + liveTail,
-        notices.takeIf { it.isNotEmpty() }?.joinToString("\n"),
-    )
+    }
+    return notices.takeIf { it.isNotEmpty() }?.joinToString("\n")
 }
 
 class MainActivity : ComponentActivity() {
@@ -92,7 +80,8 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Box(
                         modifier = Modifier.fillMaxSize()
-                            .windowInsetsPadding(WindowInsets.safeDrawing),
+                            .windowInsetsPadding(WindowInsets.safeDrawing)
+                            .windowInsetsPadding(WindowInsets.ime),
                     ) {
                         val scope = rememberCoroutineScope()
                         var authed by rememberSaveable { mutableStateOf(false) }
@@ -106,10 +95,12 @@ class MainActivity : ComponentActivity() {
                         var sessionsLoading by remember { mutableStateOf(false) }
                         var sessionsError by remember { mutableStateOf<String?>(null) }
                         var contractWarning by remember { mutableStateOf<String?>(null) }
-                        var open by remember { mutableStateOf<OpenSession?>(null) }
+                        var open by remember { mutableStateOf<ChatOpen?>(null) }
                         /** Stored id the user most recently asked to open; null after Back. Guards stale results. */
                         var openingId by remember { mutableStateOf<String?>(null) }
-                        var historyLoading by remember { mutableStateOf(false) }
+                        var sending by remember { mutableStateOf(false) }
+                        var sendError by remember { mutableStateOf<String?>(null) }
+                        var sentCount by remember { mutableStateOf(0) }
                         val liveRuntimes = remember { mutableStateMapOf<String, String>() } // storedId -> runtimeId
                         val connState by app.gateway.connState.collectAsState()
                         val lines by app.captureLog.lines.collectAsState()
@@ -142,37 +133,47 @@ class MainActivity : ComponentActivity() {
 
                         suspend fun openSession(row: SessionRow) {
                             openingId = row.id
-                            historyLoading = true
                             fun stillWanted() = openingId == row.id
-                            val cached = app.sessionCache.readTranscript(row.id)
-                            if (cached != null && stillWanted()) {
-                                open = OpenSession(row, liveRuntimes[row.id] ?: "", row.title, Transcript.project(cached), null)
-                            }
-                            val result: OpenSession = try {
+                            fun titleOf(snap: LiveSessionSnapshot): String =
+                                (snap.info["title"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                                    ?.takeIf { it.isNotBlank() } ?: row.title
+                            try {
                                 val snap = app.sessionsApi.resumeStored(row.id)
                                 liveRuntimes[snap.storedId()] = snap.session_id
                                 checkContract(snap.info)
                                 app.sessionCache.writeTranscript(snap.storedId(), snap.messages)
-                                openSessionFrom(row, snap)
+                                if (!stillWanted()) return
+                                open = ChatOpen(
+                                    row, titleOf(snap),
+                                    app.acquireTurnSession(snap.storedId(), snap.session_id, snap),
+                                    chatNotice(snap),
+                                )
                             } catch (e: RpcException) {
-                                if (e.code == 4130L) {
-                                    // Transcript too large for live resume: paged REST copy.
+                                if (e.code == 4130L && stillWanted()) {
+                                    // Transcript too large for live resume: paged REST copy
+                                    // over a lazily-bound runtime.
                                     app.captureLog.add("resume 4130 — falling back to paged history")
-                                    val msgs = app.sessionsApi.messagesPage(row.id)
-                                    app.sessionCache.writeTranscript(row.id, msgs)
-                                    OpenSession(row, "", row.title, Transcript.project(msgs),
-                                        "Transcript too large for live view — showing a paged copy.")
-                                } else {
-                                    OpenSession(row, "", row.title, cached?.let(Transcript::project) ?: emptyList(),
-                                        "Couldn't open live session: ${e.message}")
+                                    try {
+                                        val msgs = app.sessionsApi.messagesPage(row.id)
+                                        app.sessionCache.writeTranscript(row.id, msgs)
+                                        val snap = app.sessionsApi.resumeStored(row.id, lazy = true)
+                                        liveRuntimes[snap.storedId()] = snap.session_id
+                                        val session = app.acquireTurnSession(
+                                            snap.storedId(), snap.session_id, snap,
+                                        )
+                                        session.setHistory(msgs)
+                                        open = ChatOpen(
+                                            row, titleOf(snap), session,
+                                            "Transcript too large for live view — showing a paged copy.",
+                                        )
+                                    } catch (e2: Exception) {
+                                        sessionsError = e2.userMessage("Couldn't open live session")
+                                    }
+                                } else if (stillWanted()) {
+                                    sessionsError = e.userMessage("Couldn't open live session")
                                 }
                             } catch (e: Exception) {
-                                OpenSession(row, "", row.title, cached?.let(Transcript::project) ?: emptyList(),
-                                    e.userMessage("Couldn't open live session"))
-                            }
-                            if (stillWanted()) {
-                                open = result
-                                historyLoading = false
+                                if (stillWanted()) sessionsError = e.userMessage("Couldn't open live session")
                             }
                         }
 
@@ -250,18 +251,52 @@ class MainActivity : ComponentActivity() {
                             )
                         } else if (open != null) {
                             val o = open!!
-                            HistoryScreen(
+                            val history by o.session.history.collectAsStateWithLifecycle()
+                            val extras by o.session.extras.collectAsStateWithLifecycle()
+                            val live by o.session.state.collectAsStateWithLifecycle()
+                            val recovering by o.session.recovering.collectAsStateWithLifecycle()
+                            ChatScreen(
                                 title = o.title,
-                                messages = o.messages,
-                                loading = historyLoading,
+                                history = history,
+                                extras = extras,
+                                live = live,
+                                recovering = recovering,
                                 notice = o.notice,
+                                sendError = sendError,
+                                sending = sending,
+                                sentCount = sentCount,
                                 images = app.serverImages,
                                 onBack = {
                                     openingId = null
+                                    app.releaseTurnSession(o.session)
                                     open = null
-                                    historyLoading = false
+                                    sendError = null
                                 },
-                                onRefresh = { scope.launch { openSession(o.row) } },
+                                onSend = { text ->
+                                    scope.launch {
+                                        sending = true
+                                        sendError = null
+                                        try {
+                                            o.session.send(text)
+                                            sentCount++
+                                        } catch (e: Exception) {
+                                            val msg = e.userMessage("Couldn't send")
+                                            app.captureLog.add("ERROR $msg")
+                                            sendError = msg
+                                        } finally {
+                                            sending = false
+                                        }
+                                    }
+                                },
+                                onStop = {
+                                    scope.launch {
+                                        try {
+                                            o.session.stop()
+                                        } catch (e: Exception) {
+                                            app.captureLog.add("ERROR stop: ${e.message}")
+                                        }
+                                    }
+                                },
                             )
                         } else when (screen) {
                             Screen.Sessions -> SessionsScreen(
@@ -324,6 +359,7 @@ class MainActivity : ComponentActivity() {
                                         app.gateway.disconnect()
                                         app.tokenManager.logout()
                                         openingId = null
+                                        open?.let { app.releaseTurnSession(it.session) }
                                         open = null
                                         authed = false
                                         screen = Screen.Sessions

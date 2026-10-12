@@ -6,14 +6,17 @@ import com.arcrictor.hermes.data.TokenStore
 import com.arcrictor.hermes.diagnostics.CaptureLog
 import com.arcrictor.hermes.gateway.AuthApi
 import com.arcrictor.hermes.gateway.GatewayClient
+import com.arcrictor.hermes.gateway.LiveSessionSnapshot
 import com.arcrictor.hermes.gateway.SessionsApi
 import com.arcrictor.hermes.gateway.TokenManager
+import com.arcrictor.hermes.gateway.TurnSession
 import com.arcrictor.hermes.media.ServerImages
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.ConcurrentHashMap
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -40,6 +43,30 @@ class HermesApp : Application() {
     val serverImages by lazy { ServerImages(sessionsApi) }
 
     private val connectMutex = Mutex()
+
+    /**
+     * Live chat sessions by stored id. Survive rotation with the process;
+     * released when the user backs out. Same runtime → same instance.
+     */
+    private val turnSessions = ConcurrentHashMap<String, TurnSession>()
+
+    fun acquireTurnSession(
+        storedId: String,
+        runtimeId: String,
+        snapshot: LiveSessionSnapshot,
+    ): TurnSession {
+        val existing = turnSessions[storedId]
+        if (existing != null && existing.runtimeId == runtimeId) return existing
+        existing?.close()
+        return TurnSession(gateway, sessionsApi, appScope, ::ensureConnected, storedId, runtimeId, snapshot) {
+            captureLog.add(it)
+        }.also { turnSessions[storedId] = it }
+    }
+
+    fun releaseTurnSession(session: TurnSession) {
+        turnSessions.entries.removeIf { it.value === session }
+        session.close()
+    }
 
     /**
      * Returns a ready socket, (re)connecting with a fresh ticket if it dropped
