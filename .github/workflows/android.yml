@@ -56,7 +56,8 @@ jobs:
           HERMES_PASSWORD: ${{ secrets.HERMES_PASSWORD }}
         run: |
           if [ -n "$HERMES_PASSWORD" ]; then
-            printf 'hermes.password=%s\n' "$HERMES_PASSWORD" > local.properties
+            # app/build.gradle.kts reads file("local.properties") relative to app/
+            printf 'hermes.password=%s\n' "$HERMES_PASSWORD" > app/local.properties
           fi
 
       - name: Setup Gradle
