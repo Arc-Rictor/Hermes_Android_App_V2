@@ -1,6 +1,7 @@
+// NOTE (AGP 9): Kotlin support is built into AGP — org.jetbrains.kotlin.android
+// must NOT be applied (see https://kotl.in/gradle/agp-built-in-kotlin).
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
@@ -49,9 +50,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions {
-        jvmTarget = "17"
     }
     buildFeatures {
         compose = true
