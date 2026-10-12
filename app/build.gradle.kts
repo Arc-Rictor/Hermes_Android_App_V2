@@ -27,7 +27,7 @@ android {
     signingConfigs {
         create("ciDebug") {
             val path = System.getenv("DEBUG_KEYSTORE_PATH")
-            if (path != null) {
+            if (!path.isNullOrEmpty()) {
                 storeFile = file(path)
                 storePassword = System.getenv("DEBUG_KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("DEBUG_KEY_ALIAS")
@@ -38,7 +38,7 @@ android {
 
     buildTypes {
         debug {
-            if (System.getenv("DEBUG_KEYSTORE_PATH") != null) {
+            if (!System.getenv("DEBUG_KEYSTORE_PATH").isNullOrEmpty()) {
                 signingConfig = signingConfigs.getByName("ciDebug")
             }
         }
